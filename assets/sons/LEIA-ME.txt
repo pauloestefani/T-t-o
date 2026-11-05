@@ -6,4 +6,7 @@ Sons do Tátão (originais em WAV, já sem o silêncio do fim). O app usa versõ
   mensagem_de_texto.wav    -> mensagem nova na Resenha
   mutar_mic.wav            -> você desliga o microfone
   mutar_tudo.wav           -> você silencia tudo (fone)
+  transmitir_tela.wav      -> você começa a transmitir a tela
+  parar_transmitir.wav     -> você para de transmitir
+  trocar_de_janela.wav     -> você troca a janela/tela durante a transmissão
   Chamada.wav              -> reservado para a função de chamada (ainda não existe)
