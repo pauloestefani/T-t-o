@@ -87,33 +87,64 @@ function findExeDir(root) {
   return null;
 }
 function send(channel, data) { if (win && !win.isDestroyed()) win.webContents.send(channel, data); }
+function ghRedirect(url) {
+  // pega só o endereço de redirecionamento (sem seguir), pra descobrir a tag mais nova
+  return new Promise((res, rej) => {
+    const req = https.get(url, { headers: { "User-Agent": "Tatao-Updater" } }, (r) => { r.resume(); res(r.headers.location || ""); });
+    req.on("error", rej); req.setTimeout(15000, () => req.destroy(new Error("timeout")));
+  });
+}
 
+let updBusy = false;   // evita duas checagens/downloads ao mesmo tempo
+let updReady = null;   // atualização já baixada e pronta
 async function checkUpdate(manual) {
+  if (updReady) { send("update-ready", updReady); return; }
+  if (updBusy) { if (manual) send("update-status", { state: "busy" }); return; }
   const repo = updateRepo();
   if (manual) send("update-status", { state: "checking" });
   if (!repo) { if (manual) send("update-status", { state: "disabled" }); return; }
   if (process.platform !== "win32") { if (manual) send("update-status", { state: "unsupported" }); return; }
+  updBusy = true;
   try {
-    const r = await ghGet("https://api.github.com/repos/" + repo + "/releases/latest");
-    if (r.status !== 200) { if (manual) send("update-status", { state: r.status === 404 ? "none" : "error", version: app.getVersion() }); return; }
-    const rel = JSON.parse(r.body);
-    if (!rel || !rel.tag_name || !semverGt(rel.tag_name, app.getVersion())) { if (manual) send("update-status", { state: "none", version: app.getVersion() }); return; }
-    const asset = (rel.assets || []).find((a) => /\.zip$/i.test(a.name));
-    if (!asset) { if (manual) send("update-status", { state: "none", version: app.getVersion() }); return; }
-    send("update-available", { version: rel.tag_name });
+    let tag = null, assetUrl = null;
+    // 1) link público do GitHub (sem limite de consultas): /releases/latest redireciona pra /releases/tag/<tag>
+    try {
+      const loc = await ghRedirect("https://github.com/" + repo + "/releases/latest");
+      if (loc && loc.indexOf("/releases/tag/") >= 0) {
+        tag = decodeURIComponent(loc.split("/releases/tag/")[1].split(/[?#]/)[0]);
+        assetUrl = "https://github.com/" + repo + "/releases/download/" + encodeURIComponent(tag) + "/Tatao-Windows.zip";
+      }
+    } catch (_) {}
+    // 2) reserva: API do GitHub (tem limite de 60 consultas/hora por internet)
+    if (!tag) {
+      const r = await ghGet("https://api.github.com/repos/" + repo + "/releases/latest");
+      if (r.status !== 200) { if (manual) send("update-status", { state: r.status === 404 ? "none" : "error", version: app.getVersion() }); return; }
+      const rel = JSON.parse(r.body);
+      const asset = rel && (rel.assets || []).find((a) => /\.zip$/i.test(a.name));
+      if (rel && rel.tag_name && asset) { tag = rel.tag_name; assetUrl = asset.browser_download_url; }
+    }
+    if (!tag || !assetUrl || !semverGt(tag, app.getVersion())) { if (manual) send("update-status", { state: "none", version: app.getVersion() }); return; }
+    send("update-available", { version: tag });
     const tmp = path.join(app.getPath("temp"), "tatao-update");
-    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {}
+    process.noAsar = true; // pasta antiga pode conter app.asar
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {} finally { process.noAsar = false; }
     fs.mkdirSync(tmp, { recursive: true });
     const zipPath = path.join(tmp, "update.zip");
-    await ghDownload(asset.browser_download_url, zipPath, (p) => send("update-progress", p));
+    await ghDownload(assetUrl, zipPath, (p) => send("update-progress", p));
     const outDir = path.join(tmp, "extracted");
     const extract = require("extract-zip");
-    await extract(zipPath, { dir: outDir });
-    const appDir = findExeDir(outDir);
+    // o Electron trata arquivos .asar como pastas; desliga isso enquanto extrai o pacote novo (que contém app.asar)
+    let appDir = null;
+    process.noAsar = true;
+    try { await extract(zipPath, { dir: outDir }); appDir = findExeDir(outDir); }
+    finally { process.noAsar = false; }
     if (!appDir) { send("update-error", { msg: "pacote inválido", url: "https://github.com/" + repo + "/releases/latest" }); return; }
-    send("update-ready", { version: rel.tag_name, dir: appDir });
+    updReady = { version: tag, dir: appDir };
+    send("update-ready", updReady);
   } catch (e) {
     send("update-error", { msg: String((e && e.message) || e), url: "https://github.com/" + repo + "/releases/latest" });
+  } finally {
+    updBusy = false;
   }
 }
 
@@ -122,13 +153,14 @@ function applyUpdate(newDir) {
     const installDir = path.dirname(app.getPath("exe"));
     const exe = app.getPath("exe");
     const bat = path.join(app.getPath("temp"), "tatao-apply.cmd");
+    const log = path.join(app.getPath("temp"), "tatao-update.log");
     const script = [
       "@echo off",
       "chcp 65001 >nul",
-      "timeout /t 2 /nobreak >nul",
-      ":retry",
-      'robocopy "' + newDir + '" "' + installDir + '" /E /IS /IT /R:8 /W:2 >nul',
-      "if errorlevel 8 ( timeout /t 2 /nobreak >nul & goto retry )",
+      // espera o Tátão fechar (ping funciona mesmo sem janela de console; timeout não)
+      "ping -n 4 127.0.0.1 >nul",
+      // copia a versão nova por cima; o próprio robocopy tenta de novo se algum arquivo ainda estiver em uso
+      'robocopy "' + newDir + '" "' + installDir + '" /E /IS /IT /R:10 /W:2 /NP /LOG:"' + log + '"',
       'start "" "' + exe + '"',
       "exit"
     ].join("\r\n");
