@@ -8,5 +8,6 @@ Sons do Tátão (originais em WAV, já sem o silêncio do fim). O app usa versõ
   mutar_tudo.wav           -> você silencia tudo (fone)
   transmitir_tela.wav      -> você começa a transmitir a tela
   parar_transmitir.wav     -> você para de transmitir
-  trocar_de_janela.wav     -> você troca a janela/tela durante a transmissão
+  trocar_de_janela.wav     -> trocar entre as abas Sala, LAN e Ajustes
+  abrir_lan.wav            -> a sua rede LAN liga
   Chamada.wav              -> reservado para a função de chamada (ainda não existe)
