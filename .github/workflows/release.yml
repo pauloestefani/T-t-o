@@ -24,9 +24,10 @@ jobs:
         run: |
           $ver = node -p "require('./package.json').version"
           "ver=$ver" >> $env:GITHUB_OUTPUT
-          gh release view "v$ver" --repo ${{ github.repository }} *> $null
-          if ($LASTEXITCODE -eq 0) { "skip=true" >> $env:GITHUB_OUTPUT; Write-Host "Release v$ver já existe — pulando." }
+          $null = gh release view "v$ver" --repo ${{ github.repository }} 2>$null
+          if ($LASTEXITCODE -eq 0) { "skip=true" >> $env:GITHUB_OUTPUT; Write-Host "Release v$ver ja existe - pulando." }
           else { "skip=false" >> $env:GITHUB_OUTPUT; Write-Host "Vai publicar v$ver." }
+          exit 0
 
       - name: Instalar dependências
         if: steps.check.outputs.skip == 'false'
