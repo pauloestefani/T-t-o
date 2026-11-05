@@ -4,3 +4,7 @@ app-stage/
 *.zip
 _*
 .stage/
+list-out.txt
+list-err.txt
+cap-out.bin
+cap-err.txt

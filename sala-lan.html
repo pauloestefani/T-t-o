@@ -128,6 +128,15 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
 #ytholder{width:100%;aspect-ratio:16/9;background:var(--video);border-radius:10px;overflow:hidden;margin-bottom:12px}
 #ytholder iframe{width:100%;height:100%;display:block}
 .queue{margin-top:12px;max-height:180px;overflow:auto}
+.pcbox{background:var(--card);border:1px solid var(--pline);border-radius:12px;padding:14px;margin-bottom:14px}
+.pchead{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+.pcrow{display:flex;gap:8px;margin-bottom:10px}.pcrow select{flex:1;min-width:0}
+.pcbox #pcShareBtn{width:100%}
+.pcbox .err:empty{display:none}
+.pclisten{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.pcl{display:flex;align-items:center;gap:9px;font-size:13px;padding:9px 11px;background:var(--note);border-radius:9px;min-width:0}
+.pcl .eq{color:var(--pill);flex:none}.pcl .pct{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.msub{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 10px}
 .qitem{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #2e3b52;font-size:13px}
 .qitem.cur{color:var(--accent);font-weight:600}
 .qitem .qt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:transparent;text-align:left;padding:0}
@@ -287,6 +296,14 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
             </div>
             <div class="panel">
               <h2>Música</h2>
+              <div class="pcbox" id="pcBox">
+                <div class="pchead"><strong>Áudio do seu PC</strong><span class="muted">Toque o Spotify (ou qualquer app) e a sala ouve junto</span></div>
+                <div class="pcrow"><select id="pcSrc" aria-label="De onde vem o som"><option value="">Procurando apps com som…</option></select><button class="btn small" id="pcRefresh" title="Atualizar a lista de apps">↻</button></div>
+                <button class="btn primary" id="pcShareBtn">♫ Compartilhar áudio</button>
+                <div class="err" id="pcErr"></div>
+              </div>
+              <div class="pclisten" id="pcListen" hidden></div>
+              <div class="msub">YouTube · todo mundo ouve junto</div>
               <div class="mnow"><span class="ico">♪</span><span id="mTitle">Nada tocando</span></div>
               <div id="ytholder"></div>
               <form class="send" id="mAddForm"><input id="mUrl" type="text" placeholder="Cole um link do YouTube…" autocomplete="off"><button class="btn primary">Adicionar</button></form>
@@ -296,6 +313,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
                 <button class="btn small" id="mQueueToggle">Fila (<span id="mQn">0</span>)</button>
               </div>
               <div class="queue" id="mQueue" hidden></div>
+              <div class="control" style="margin-bottom:0"><label for="musicVol">Volume da música: <span id="musicVolVal">80</span>%</label><input type="range" class="range" id="musicVol" min="0" max="100" value="80"></div>
             </div>
             <div class="panel">
               <h2>Áudio da sala</h2>
@@ -362,7 +380,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
             <div class="control"><label for="outDev">Alto-falantes / fones</label><select id="outDev"><option value="default">Padrão do sistema</option></select></div>
             <div class="control"><label for="outVol">Volume de saída: <span id="outVolVal">80</span>%</label><input type="range" class="range" id="outVol" min="0" max="100" value="80"></div>
             <button class="btn" id="testSpeaker">Tocar som de teste</button>
-            <div class="note" style="margin-top:14px">A saída escolhida vale para as vozes e os sons do Tátão. A música do YouTube sai sempre pela saída padrão do Windows.</div>
+            <div class="note" style="margin-top:14px">A saída escolhida vale para as vozes e os sons do Tátão. O YouTube sai sempre pela saída padrão do Windows. A música que os amigos compartilham do PC sai por aqui.</div>
           </div>
         </div>
         <div>
@@ -404,7 +422,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.9.0";
+  var APP_VERSION="1.10.0";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -426,7 +444,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   // ---------- configurações (salvas em disco no app) ----------
   var DEF={name:"",room:"",autojoin:false,host:"",port:"",hostServer:false,serverPort:"9000",
     inDev:"default",outDev:"default",inVol:100,outVol:80,micDisabled:false,ns:true,ec:true,agc:true,
-    quality:"1080p",fps:"60",shareType:"screen",shareAudio:true,lanAuto:false,lanMap:{}};
+    quality:"1080p",fps:"60",shareType:"screen",shareAudio:true,lanAuto:false,lanMap:{},musicVol:80,pcSrcExe:""};
   var cfg={};
   function loadSettings(){
     if(isApp&&api.getSettings)return api.getSettings().then(function(s){return s||{};}).catch(function(){return{};});
@@ -526,6 +544,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   function applyOutput(){
     var vol=(cfg.outVol==null?80:cfg.outVol)/100,sink=(cfg.outDev&&cfg.outDev!=="default")?cfg.outDev:"";
     var els=[];for(var id in remoteAudioEls)els.push(remoteAudioEls[id]);for(var k in SND)els.push(SND[k]);
+    for(var mk in remoteMusic){var mel=remoteMusic[mk].el;mel._base=musicVolPct()/100;mel._isVoice=true;els.push(mel);}
     els.forEach(function(el){
       el.volume=Math.max(0,Math.min(1,vol*(el._base||1)));
       if(el._isVoice)el.muted=deaf;
@@ -628,7 +647,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
       myId=id;wireCommon();enterRoom();commitRoster({});setStatus("wait","Entrando na sala…");
       var conn=p.connect(hostId,{reliable:true,metadata:{name:myName}});
       hookData(conn);
-      conn.on("open",function(){conn.send({t:"hello",name:myName,ver:APP_VERSION,mic:myMic(),deaf:deaf,lan:lanMine,lanOn:lanActive});setStatus("ok","Online");});
+      conn.on("open",function(){conn.send({t:"hello",name:myName,ver:APP_VERSION,mic:myMic(),deaf:deaf,lan:lanMine,lanOn:lanActive,snd:mySnd()});setStatus("ok","Online");});
     });
     p.on("error",function(e){if(e&&(e.type==="peer-unavailable"||e.type==="unavailable-id"))return;fatal(e);});
   }
@@ -636,7 +655,11 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     peer.on("connection",function(conn){if(conn.label==="lan")hookLan(conn);else hookData(conn);});
     peer.on("call",function(call){
       var kind=(call.metadata&&call.metadata.type)||"audio";
-      if(kind==="screen"){
+      if(kind==="music"){
+        call.answer(undefined,{sdpTransform:stereoSdp});
+        call.on("stream",function(s){addRemoteMusic(call.peer,s);});
+        call.on("close",function(){removeRemoteMusic(call.peer);});
+      }else if(kind==="screen"){
         call.answer();
         call.on("stream",function(s){addRemoteScreen(call.peer,s);});
         call.on("close",function(){removeRemoteScreen(call.peer);});
@@ -672,11 +695,11 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     if(!msg||!msg.t)return;
     if(msg.t==="hello"&&isHost){
       var prevVip=members[conn.peer]&&members[conn.peer].vip;
-      members[conn.peer]={name:msg.name||"Jogador",ver:msg.ver||null,mic:msg.mic!==false,deaf:!!msg.deaf,lan:msg.lan||[],lanOn:!!msg.lanOn,vip:prevVip||hostAssignVip(msg.name||"Jogador",conn.peer)};
+      members[conn.peer]={name:msg.name||"Jogador",ver:msg.ver||null,mic:msg.mic!==false,deaf:!!msg.deaf,lan:msg.lan||[],lanOn:!!msg.lanOn,snd:String(msg.snd||"").slice(0,40),vip:prevVip||hostAssignVip(msg.name||"Jogador",conn.peer)};
       checkPeerVer(msg.ver);commitRoster(members);broadcastRoster();
     }else if(msg.t==="state"&&isHost){
       var m=members[conn.peer]||{name:"Jogador"};
-      m.mic=msg.mic!==false;m.deaf=!!msg.deaf;m.lanOn=!!msg.lanOn;if(msg.lan)m.lan=msg.lan;members[conn.peer]=m;
+      m.mic=msg.mic!==false;m.deaf=!!msg.deaf;m.lanOn=!!msg.lanOn;m.snd=String(msg.snd||"").slice(0,40);if(msg.lan)m.lan=msg.lan;members[conn.peer]=m;
       commitRoster(members);broadcastRoster();
     }else if(msg.t==="roster"){
       checkPeerVer(msg.ver);
@@ -693,10 +716,10 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     var payload={t:"roster",members:members,ver:APP_VERSION};
     for(var id in dataConns){try{dataConns[id].send(payload);}catch(_){}}
   }
-  function myEntry(){return{name:myName,ver:APP_VERSION,mic:myMic(),deaf:deaf,lan:lanMine,vip:myVip,lanOn:lanActive};}
+  function myEntry(){return{name:myName,ver:APP_VERSION,mic:myMic(),deaf:deaf,lan:lanMine,vip:myVip,lanOn:lanActive,snd:mySnd()};}
   function commitRoster(src){
     var nm={};
-    for(var k in src){var s=src[k]||{};nm[k]={name:s.name||"Jogador",ver:s.ver||null,mic:s.mic!==false,deaf:!!s.deaf,lan:s.lan||[],vip:s.vip||null,lanOn:!!s.lanOn};}
+    for(var k in src){var s=src[k]||{};nm[k]={name:s.name||"Jogador",ver:s.ver||null,mic:s.mic!==false,deaf:!!s.deaf,lan:s.lan||[],vip:s.vip||null,lanOn:!!s.lanOn,snd:String(s.snd||"").slice(0,40)};}
     if(!isHost&&src[myId]&&src[myId].vip)myVip=src[myId].vip; // IP que o anfitrião me deu
     nm[myId]=myEntry();
     if(rosterReady){
@@ -704,14 +727,14 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
       for(var b in prevRoster){if(!nm[b]&&b!==myId){sysMsg(prevRoster[b].name+" saiu");playSnd("sair");delete probeRes[b];}}
     }
     members=nm;prevRoster={};for(var c in members)prevRoster[c]={name:members[c].name};
-    rosterReady=true;renderPeople();renderComputers();syncMesh();lanAfterRoster();
+    rosterReady=true;renderPeople();renderComputers();syncMesh();lanAfterRoster();musicAfterRoster();
   }
   // avisa a sala quando você muda microfone/áudio ou a rede virtual muda
   function pushMyState(){
     if(!inRoom||!myId)return;
     members[myId]=myEntry();
     if(isHost){commitRoster(members);broadcastRoster();}
-    else{var h=dataConns[hostId];if(h){try{h.send({t:"state",mic:myMic(),deaf:deaf,lan:lanMine,lanOn:lanActive});}catch(_){}}renderPeople();renderComputers();}
+    else{var h=dataConns[hostId];if(h){try{h.send({t:"state",mic:myMic(),deaf:deaf,lan:lanMine,lanOn:lanActive,snd:mySnd()});}catch(_){}}renderPeople();renderComputers();renderPcListen();}
   }
 
   // ---------- voz e tela (mesh) ----------
@@ -728,13 +751,15 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
         }catch(e){console.warn("chamada falhou",e);}
       }
       if(sharing&&screenStream&&!screenOut[pid])sendScreenTo(pid);
+      if(pcShare&&!musicOut[pid])sendMusicTo(pid);
     }
     for(var aid in audioCalls){if(!members[aid])dropPeer(aid);}
   }
   function dropPeer(pid){
     if(audioCalls[pid]){try{audioCalls[pid].close();}catch(_){}delete audioCalls[pid];}
     if(screenOut[pid]){try{screenOut[pid].close();}catch(_){}delete screenOut[pid];}
-    removeRemoteAudio(pid);removeRemoteScreen(pid);
+    if(musicOut[pid]){try{musicOut[pid].close();}catch(_){}delete musicOut[pid];}
+    removeRemoteAudio(pid);removeRemoteScreen(pid);removeRemoteMusic(pid);
     if(members[pid]){delete members[pid];renderPeople();renderComputers();}
   }
   function addRemoteAudio(pid,stream){
@@ -771,8 +796,15 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     if(sharing){stopSharing();return;}
     var md=navigator.mediaDevices;
     if(!md||!md.getDisplayMedia){if($("previewDetail"))$("previewDetail").textContent="Este navegador não consegue transmitir a tela. Use o app do Tátão.";return;}
-    if(isApp&&api.setShareOptions)api.setShareOptions({type:cfg.shareType==="screen"?"screen":"window",audio:cfg.shareAudio!==false});
-    md.getDisplayMedia({video:videoConstraints(),audio:cfg.shareAudio!==false}).then(function(stream){
+    var wantAudio=cfg.shareAudio!==false,useCap=wantAudio&&pcAvail&&!pcBroken;
+    // com o capturador do Tátão o som vai sem as vozes dos amigos (o modo antigo do Windows pega tudo, inclusive elas)
+    if(isApp&&api.setShareOptions)api.setShareOptions({type:cfg.shareType==="screen"?"screen":"window",audio:wantAudio&&!useCap});
+    var gdm=md.getDisplayMedia({video:videoConstraints(),audio:wantAudio&&!useCap});
+    var capP=useCap?pcCapture("exclude",0).catch(function(e){pcBroken=true;console.warn("som da transmissão:",e&&e.message);return null;}):Promise.resolve(null);
+    Promise.all([gdm.catch(function(e){return{err:e};}),capP]).then(function(rs){
+      var stream=rs[0],cap=rs[1];
+      if(!stream||stream.err){if(cap)pcRelease(cap.id);throw (stream&&stream.err)||new Error("cancelado");}
+      if(cap){var at=cap.stream.getAudioTracks()[0];if(at)stream.addTrack(at);screenAudioCap=cap;}
       screenStream=stream;sharing=true;
       var vt=stream.getVideoTracks()[0];
       if(vt){try{vt.contentHint=cfg.shareType==="game"?"motion":"detail";}catch(_){}vt.addEventListener("ended",stopSharing);}
@@ -786,6 +818,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   }
   function stopSharing(){
     sharing=false;
+    if(screenAudioCap){pcRelease(screenAudioCap.id);screenAudioCap=null;}
     if(screenStream){screenStream.getTracks().forEach(function(t){try{t.stop();}catch(_){}});screenStream=null;}
     for(var pid in screenOut){try{screenOut[pid].close();}catch(_){}delete screenOut[pid];}
     updateShareUI();renderStage();
@@ -892,7 +925,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     sysMsg("Você entrou na sala "+roomCode+".");
     if(ovHost&&serverIps&&serverIps.length)sysMsg("Servidor rodando neste PC. Os amigos colocam em Configurações → Servidor de conexão: host "+serverIps.join(" ou ")+", porta "+ovPort+".");
     if(isApp&&api.lanListen)api.lanListen().catch(function(){});
-    renderComputers();lanUI();loadYT();
+    renderComputers();lanUI();loadYT();renderPcListen();if(pcAvail)pcRefreshList();
   }
   function fatal(e){
     var msg=(e&&e.message)||String(e);
@@ -901,7 +934,8 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   }
   function cleanup(){
     if(lanActive&&api.lanStop){try{api.lanStop();}catch(_){}}
-    stopSharing();
+    stopSharing();stopPcShare();
+    for(var rm in remoteMusic)removeRemoteMusic(rm);
     if(rawMic)rawMic.getTracks().forEach(function(t){try{t.stop();}catch(_){}});
     for(var id in remoteAudioEls)removeRemoteAudio(id);
     try{if(peer)peer.destroy();}catch(_){}
@@ -913,7 +947,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   function loadYT(){if(document.getElementById("ytapi"))return;var s=document.createElement("script");s.id="ytapi";s.src="https://www.youtube.com/iframe_api";document.head.appendChild(s);}
   window.onYouTubeIframeAPIReady=function(){
     try{yt=new YT.Player("ytholder",{width:"100%",height:"100%",playerVars:{playsinline:1,controls:1,rel:0},
-      events:{onReady:function(){ytReady=true;if(pendingState){applyMusic(pendingState);pendingState=null;}
+      events:{onReady:function(){ytReady=true;applyYtVol();if(pendingState){applyMusic(pendingState);pendingState=null;}
                 else if(isHost&&music.playing&&music.queue[music.index]){try{yt.loadVideoById({videoId:music.queue[music.index].id,startSeconds:0});}catch(_){}}},
               onStateChange:function(e){if(e.data===YT.PlayerState.ENDED&&isHost)nextTrack();},
               onError:function(){if(isHost)nextTrack();}}});}catch(_){}
@@ -978,6 +1012,179 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     var addIt=function(title){musicSend("add",{id:id,title:title||id,by:myName});};
     if(isApp&&api.ytTitle)api.ytTitle(id).then(function(t){addIt(t);}).catch(function(){addIt("");});else addIt("");
   });
+
+  // ================= ÁUDIO DO PC (Spotify ou qualquer app) =================
+  // O capturador do Tátão pega só o som do app escolhido (ou do PC inteiro, menos o próprio Tátão),
+  // e ele vira uma trilha de áudio estéreo que vai pra cada amigo numa chamada separada da voz.
+  var pcAvail=false,pcBroken=false,pcShare=null,screenAudioCap=null,musicOut={},remoteMusic={},pcCtxs={},pcListAt=0;
+  var APPNAMES={"spotify.exe":"Spotify","chrome.exe":"Google Chrome","msedge.exe":"Microsoft Edge","firefox.exe":"Firefox","opera.exe":"Opera","opera_gx.exe":"Opera GX","brave.exe":"Brave","discord.exe":"Discord","vlc.exe":"VLC","deezer.exe":"Deezer","applemusic.exe":"Apple Music","itunes.exe":"iTunes","tidal.exe":"TIDAL","wmplayer.exe":"Windows Media Player","microsoft.media.player.exe":"Media Player","foobar2000.exe":"foobar2000","aimp.exe":"AIMP","steamwebhelper.exe":"Steam","amazon music.exe":"Amazon Music","youtube music.exe":"YouTube Music"};
+  function appLabel(exe){var k=String(exe||"").toLowerCase();return APPNAMES[k]||String(exe||"App").replace(/\.exe$/i,"");}
+  function musicVolPct(){var v=cfg.musicVol;return v==null||isNaN(v)?80:Math.max(0,Math.min(100,+v));}
+  function applyYtVol(){if(yt&&yt.setVolume){try{yt.setVolume(musicVolPct());}catch(_){}}}
+  function mySnd(){return pcShare?pcShare.label:"";}
+  // processador que toca o som cru que chega do capturador (com uma folga pequena pra não picotar)
+  var PCM_WORKLET=[
+    "class P extends AudioWorkletProcessor{",
+    "constructor(){super();var c=sampleRate*2;this.c=c;this.L=new Float32Array(c);this.R=new Float32Array(c);this.r=0;this.w=0;this.n=0;this.go=false;",
+    "this.t=Math.round(sampleRate*0.08);this.m=Math.round(sampleRate*0.3);",
+    "this.port.onmessage=(e)=>{var s=new Int16Array(e.data),f=s.length>>1;for(var i=0;i<f;i++){this.L[this.w]=s[2*i]/32768;this.R[this.w]=s[2*i+1]/32768;this.w=(this.w+1)%this.c;}this.n+=f;",
+    "if(this.n>this.m){var d=this.n-this.t;this.r=(this.r+d)%this.c;this.n-=d;}};}",
+    "process(i,o){var l=o[0][0],r=o[0][1]||l,k=l.length;",
+    "if(!this.go){if(this.n>=this.t)this.go=true;else{l.fill(0);if(r!==l)r.fill(0);return true;}}",
+    "for(var j=0;j<k;j++){if(this.n>0){l[j]=this.L[this.r];r[j]=this.R[this.r];this.r=(this.r+1)%this.c;this.n--;}else{l[j]=0;r[j]=0;}}",
+    "if(this.n===0)this.go=false;return true;}}",
+    "registerProcessor('tatao-pcm',P);"].join("\n");
+  function pcCapture(mode,pid){
+    return api.pcAudioStart({mode:mode,pid:pid}).then(function(r){
+      if(!r||!r.ok){var er=new Error((r&&r.error)||"falhou");er.code=r&&r.code;throw er;}
+      var AC=window.AudioContext||window.webkitAudioContext;
+      var ctx=new AC({sampleRate:r.rate,latencyHint:"playback"});
+      var url=URL.createObjectURL(new Blob([PCM_WORKLET],{type:"application/javascript"}));
+      return ctx.audioWorklet.addModule(url).then(function(){
+        URL.revokeObjectURL(url);
+        var node=new AudioWorkletNode(ctx,"tatao-pcm",{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[2]});
+        var dest=ctx.createMediaStreamDestination();dest.channelCount=2;node.connect(dest);
+        if(ctx.state==="suspended")ctx.resume().catch(function(){});
+        var t=dest.stream.getAudioTracks()[0];if(t){try{t.contentHint="music";}catch(_){}}
+        pcCtxs[r.id]={ctx:ctx,node:node};
+        return{id:r.id,stream:dest.stream};
+      },function(e){try{api.pcAudioStop(r.id);}catch(_){}try{ctx.close();}catch(_){}throw e;});
+    });
+  }
+  function pcRelease(id){
+    var c=pcCtxs[id];delete pcCtxs[id];
+    try{api.pcAudioStop(id);}catch(_){}
+    if(c){try{c.node.disconnect();}catch(_){}try{c.ctx.close();}catch(_){}}
+  }
+  if(isApp&&api.onPcAudioData){
+    api.onPcAudioData(function(id,u8){
+      var c=pcCtxs[id];if(!c||!u8||!u8.byteLength)return;
+      var b=u8.buffer.slice(u8.byteOffset,u8.byteOffset+u8.byteLength);
+      c.node.port.postMessage(b,[b]);
+    });
+    api.onPcAudioEnd(function(d){
+      var id=d&&d.id;
+      if(pcShare&&pcShare.id===id)stopPcShare("O compartilhamento parou. Tente de novo.");
+      if(screenAudioCap&&screenAudioCap.id===id){pcRelease(id);screenAudioCap=null;}
+    });
+  }
+  // Opus em estéreo e com mais qualidade (a voz usa o padrão, que é pensado pra fala)
+  function stereoSdp(sdp){
+    var m=/a=rtpmap:(\d+) opus\/48000\/2/i.exec(sdp);if(!m)return sdp;
+    var pt=m[1],add=["stereo=1","sprop-stereo=1","maxaveragebitrate=160000"];
+    var re=new RegExp("a=fmtp:"+pt+" ([^\\r\\n]*)");
+    if(re.test(sdp))return sdp.replace(re,function(all,params){
+      var ps=params.split(";").filter(function(x){x=x.trim();return x&&!/^(stereo|sprop-stereo|maxaveragebitrate)=/.test(x);});
+      return "a=fmtp:"+pt+" "+ps.concat(add).join(";");
+    });
+    return sdp.replace(m[0],m[0]+"\r\na=fmtp:"+pt+" "+add.join(";"));
+  }
+  function sendMusicTo(pid){
+    if(!pcShare||!peer)return;
+    try{
+      var c=peer.call(pid,pcShare.stream,{metadata:{type:"music"},sdpTransform:stereoSdp});
+      musicOut[pid]=c;c.on("close",function(){if(musicOut[pid]===c)delete musicOut[pid];});
+    }catch(e){console.warn("música falhou",e);}
+  }
+  function addRemoteMusic(pid,stream){
+    var r=remoteMusic[pid];
+    if(!r){var el=document.createElement("audio");el.autoplay=true;el.playsInline=true;document.body.appendChild(el);r=remoteMusic[pid]={el:el};}
+    r.el.srcObject=stream;applyOutput();r.el.play().catch(function(){});renderPcListen();
+  }
+  function removeRemoteMusic(pid){
+    var r=remoteMusic[pid];if(!r)return;
+    try{r.el.srcObject=null;r.el.remove();}catch(_){}
+    delete remoteMusic[pid];renderPcListen();
+  }
+  function musicAfterRoster(){
+    for(var pid in remoteMusic){if(!members[pid]||!members[pid].snd)removeRemoteMusic(pid);}
+    renderPcListen();
+  }
+  function renderPcListen(){
+    var box=$("pcListen");box.innerHTML="";var n=0;
+    for(var pid in members){
+      var m=members[pid];if(!m||!m.snd)continue;n++;
+      var row=document.createElement("div");row.className="pcl";
+      var eq=document.createElement("span");eq.className="eq";eq.textContent="♫";
+      var tx=document.createElement("span");tx.className="pct";
+      var who=pid===myId?"Você está":(m.name||"Jogador")+" está";
+      tx.textContent=who+" compartilhando: "+m.snd+(pid!==myId&&!remoteMusic[pid]?" (conectando…)":"");
+      row.appendChild(eq);row.appendChild(tx);box.appendChild(row);
+    }
+    box.hidden=!n;
+  }
+  function pcErrText(e){
+    var code=String((e&&e.code)||"").toLowerCase(),msg=(e&&e.message)||"erro";
+    if(msg==="unavailable")return "O capturador de áudio não veio com este app. Baixe o Tátão de novo pelo GitHub.";
+    if(/ativacao|activateaudio/i.test(msg))return "O Windows não deixou capturar o som ("+code+"). Precisa do Windows 10 versão 2004 ou mais novo, ou do Windows 11.";
+    return "Não consegui capturar o som: "+msg;
+  }
+  function updatePcUI(){
+    var b=$("pcShareBtn"),sel=$("pcSrc");
+    if(!pcAvail){
+      b.disabled=true;sel.disabled=true;$("pcRefresh").disabled=true;
+      sel.innerHTML='<option value="">Só no app do Tátão para Windows</option>';
+      return;
+    }
+    b.disabled=false;$("pcRefresh").disabled=false;sel.disabled=!!pcShare;
+    b.textContent=pcShare?"■ Parar de compartilhar":"♫ Compartilhar áudio";
+    b.classList.toggle("danger",!!pcShare);b.classList.toggle("primary",!pcShare);
+  }
+  function pcRefreshList(){
+    if(!pcAvail||pcShare)return;
+    pcListAt=Date.now();
+    var sel=$("pcSrc"),keep=sel.value&&sel.value.indexOf("app:")===0?sel.value.split(":").slice(2).join(":").toLowerCase():(sel.value==="all"?"all":String(cfg.pcSrcExe||"").toLowerCase());
+    $("pcRefresh").disabled=true;
+    api.pcAudioList().then(function(r){
+      $("pcRefresh").disabled=false;
+      if(pcShare)return;
+      var apps=(r&&r.ok&&r.apps)||[];
+      apps.sort(function(a,b){return(b.active-a.active)||appLabel(a.exe).localeCompare(appLabel(b.exe));});
+      sel.innerHTML="";
+      apps.forEach(function(a){
+        var o=document.createElement("option");o.value="app:"+a.pid+":"+a.exe;
+        o.textContent=appLabel(a.exe)+(a.active?" · tocando agora":"");sel.appendChild(o);
+      });
+      var all=document.createElement("option");all.value="all";all.textContent="Todo o som do PC (sem as vozes da sala)";sel.appendChild(all);
+      var pick=null;
+      Array.prototype.forEach.call(sel.options,function(o){
+        var ex=o.value.indexOf("app:")===0?o.value.split(":").slice(2).join(":").toLowerCase():o.value;
+        if(!pick&&keep&&ex===keep)pick=o.value;
+      });
+      if(!pick)Array.prototype.forEach.call(sel.options,function(o){if(!pick&&/spotify\.exe$/i.test(o.value))pick=o.value;});
+      sel.value=pick||(apps.length?sel.options[0].value:"all");
+      $("pcErr").textContent=(r&&!r.ok)?pcErrText(new Error(r.error)):(!apps.length?"Nenhum app tocando agora. Dê play no Spotify e clique em ↻.":"");
+    }).catch(function(e){$("pcRefresh").disabled=false;$("pcErr").textContent=pcErrText(e);});
+  }
+  function stopPcShare(msg){
+    if(!pcShare)return;
+    var s=pcShare;pcShare=null;
+    for(var p in musicOut){try{musicOut[p].close();}catch(_){}delete musicOut[p];}
+    pcRelease(s.id);
+    if(msg)$("pcErr").textContent=msg;
+    updatePcUI();pushMyState();renderPcListen();
+  }
+  $("pcShareBtn").addEventListener("click",function(){
+    if(pcShare){stopPcShare();return;}
+    if(!pcAvail)return;
+    if(!inRoom){$("pcErr").textContent="Entre numa sala primeiro.";return;}
+    var v=$("pcSrc").value;if(!v){pcRefreshList();return;}
+    var mode="exclude",pid=0,label="Som do PC",exe="all";
+    if(v.indexOf("app:")===0){var parts=v.split(":");pid=parseInt(parts[1],10)||0;exe=parts.slice(2).join(":");mode="include";label=appLabel(exe);}
+    setCfg("pcSrcExe",exe);
+    var b=$("pcShareBtn");b.disabled=true;b.textContent="Conectando ao som…";$("pcErr").textContent="";
+    pcCapture(mode,pid).then(function(c){
+      if(!inRoom){pcRelease(c.id);updatePcUI();return;}
+      pcShare={id:c.id,stream:c.stream,label:label};
+      for(var p in members){if(p!==myId)sendMusicTo(p);}
+      updatePcUI();pushMyState();renderPcListen();
+    }).catch(function(e){$("pcErr").textContent=pcErrText(e);updatePcUI();});
+  });
+  $("pcRefresh").addEventListener("click",pcRefreshList);
+  $("pcSrc").addEventListener("focus",function(){if(Date.now()-pcListAt>4000)pcRefreshList();});
+  $("musicVol").addEventListener("input",function(){setCfg("musicVol",+this.value);$("musicVolVal").textContent=this.value;applyOutput();applyYtVol();});
+  if(isApp&&api.pcAudioAvailable){api.pcAudioAvailable().then(function(v){pcAvail=!!v;updatePcUI();if(pcAvail)pcRefreshList();}).catch(function(){updatePcUI();});}
+  else updatePcUI();
 
   // ================= REDE LAN DO TÁTÃO =================
   // O anfitrião distribui IPs 10.77.x.x; cada par de PCs com a rede ligada abre um canal direto só pra LAN.
@@ -1169,6 +1376,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     $("micDisabled").checked=!!cfg.micDisabled;$("shareAudio").checked=cfg.shareAudio!==false;
     $("shareType").value=cfg.shareType||"screen";$("quality").value=cfg.quality||"1080p";$("fps").value=String(cfg.fps||"60");
     $("lanAuto").checked=!!cfg.lanAuto;
+    $("musicVol").value=musicVolPct();$("musicVolVal").textContent=musicVolPct();
     $("verLabel").textContent="v"+APP_VERSION;$("verLabel2").textContent="v"+APP_VERSION;
   }
 

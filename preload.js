@@ -33,5 +33,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkUpdate: () => ipcRenderer.invoke("update:check"),
   applyUpdate: (dir) => ipcRenderer.invoke("update:apply", dir),
   openExternal: (url) => ipcRenderer.invoke("open:external", url),
-  ytTitle: (id) => ipcRenderer.invoke("yt:title", id)
+  ytTitle: (id) => ipcRenderer.invoke("yt:title", id),
+  pcAudioAvailable: () => ipcRenderer.invoke("pcaudio:available"),
+  pcAudioList: () => ipcRenderer.invoke("pcaudio:list"),
+  pcAudioStart: (o) => ipcRenderer.invoke("pcaudio:start", o),
+  pcAudioStop: (id) => ipcRenderer.invoke("pcaudio:stop", id),
+  onPcAudioData: (cb) => ipcRenderer.on("pcaudio:data", (_e, id, d) => cb(id, d)),
+  onPcAudioEnd: (cb) => ipcRenderer.on("pcaudio:end", (_e, d) => cb(d))
 });

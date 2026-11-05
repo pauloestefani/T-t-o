@@ -217,6 +217,92 @@ function resumeArg() {
   try { return JSON.parse(Buffer.from(a.slice(pre.length), "base64").toString("utf8")); } catch (_) { return null; }
 }
 
+// ---------- áudio do PC: Spotify (ou qualquer app) pra sala, sem pegar as vozes do Tátão ----------
+// Um programinha (tatao-audio.exe) usa a captura por processo do Windows e entrega o som cru;
+// o Tátão repassa pra janela, que transforma numa trilha de áudio e manda pros amigos.
+const pcCaps = new Map();
+let pcSeq = 0;
+function pcHelperPath() {
+  if (!app.isPackaged && process.env.TATAO_AUDIO_MOCK) return process.env.TATAO_AUDIO_MOCK; // só em teste de desenvolvimento
+  return path.join(process.resourcesPath, "tatao-audio.exe");
+}
+function pcSpawn(args) {
+  const exe = pcHelperPath();
+  if (/\.(js|cjs)$/i.test(exe)) return spawn(process.execPath, [exe, ...args], { windowsHide: true, env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: "1" }) });
+  return spawn(exe, args, { windowsHide: true });
+}
+function pcAvailable() {
+  const exe = pcHelperPath();
+  return (process.platform === "win32" || !!process.env.TATAO_AUDIO_MOCK) && fs.existsSync(exe);
+}
+function pcList() {
+  return new Promise((resolve) => {
+    if (!pcAvailable()) { resolve({ ok: false, error: "unavailable" }); return; }
+    let out = "", err = "", p;
+    try { p = pcSpawn(["list", String(process.pid)]); } catch (e) { resolve({ ok: false, error: String(e) }); return; }
+    const t = setTimeout(() => { try { p.kill(); } catch (_) {} }, 6000);
+    p.stdout.on("data", (d) => out += d);
+    p.stderr.on("data", (d) => err += d);
+    p.on("error", (e) => { clearTimeout(t); resolve({ ok: false, error: String(e) }); });
+    p.on("close", (code) => {
+      clearTimeout(t);
+      if (code !== 0) { resolve({ ok: false, error: (err.trim() || ("código " + code)) }); return; }
+      const apps = out.split(/\r?\n/).map((l) => l.split("\t")).filter((c) => c.length >= 3 && +c[0] > 0)
+        .map((c) => ({ pid: +c[0], active: c[1] === "1", exe: c.slice(2).join("\t") }));
+      resolve({ ok: true, apps });
+    });
+  });
+}
+function pcStart(o) {
+  o = o || {};
+  return new Promise((resolve) => {
+    if (!pcAvailable()) { resolve({ ok: false, error: "unavailable" }); return; }
+    const mode = o.mode === "include" ? "include" : "exclude";
+    const target = mode === "include" ? (parseInt(o.pid, 10) || 0) : process.pid; // "exclude" = tudo menos o próprio Tátão
+    if (!target) { resolve({ ok: false, error: "App inválido." }); return; }
+    const id = ++pcSeq;
+    let p;
+    try { p = pcSpawn(["capture", mode, String(target), String(process.pid)]); } catch (e) { resolve({ ok: false, error: String(e) }); return; }
+    const c = { id, p, ready: false, rest: null, block: 4, settled: false };
+    pcCaps.set(id, c);
+    const finish = (r) => { if (!c.settled) { c.settled = true; clearTimeout(c.timer); resolve(r); } };
+    c.timer = setTimeout(() => { finish({ ok: false, error: "O Windows não respondeu a tempo." }); pcStop(id); }, 9000);
+    let errBuf = "";
+    p.stderr.on("data", (d) => {
+      errBuf += d;
+      let i;
+      while ((i = errBuf.indexOf("\n")) >= 0) {
+        const line = errBuf.slice(0, i).trim(); errBuf = errBuf.slice(i + 1);
+        let m;
+        if ((m = /^READY (\d+) (\d+)/.exec(line))) {
+          c.ready = true; c.rate = +m[1]; c.ch = +m[2]; c.block = c.ch * 2;
+          finish({ ok: true, id, rate: c.rate, ch: c.ch });
+        } else if ((m = /^ERR (\S+) (.*)$/.exec(line))) {
+          finish({ ok: false, error: m[2] + " (" + m[1] + ")", code: m[1] });
+        }
+      }
+    });
+    p.stdout.on("data", (d) => {
+      if (!c.ready || !win || win.isDestroyed()) return;
+      let b = c.rest ? Buffer.concat([c.rest, d]) : d; // não corta uma amostra no meio
+      const n = b.length - (b.length % c.block);
+      c.rest = n < b.length ? Buffer.from(b.subarray(n)) : null;
+      if (n > 0) win.webContents.send("pcaudio:data", id, b.subarray(0, n));
+    });
+    p.on("error", (e) => { finish({ ok: false, error: String((e && e.message) || e) }); });
+    p.on("close", (code) => {
+      pcCaps.delete(id);
+      finish({ ok: false, error: "O capturador fechou (código " + code + ")." });
+      send("pcaudio:end", { id, code });
+    });
+  });
+}
+function pcStop(id) {
+  const ids = id == null ? Array.from(pcCaps.keys()) : [id];
+  for (const k of ids) { const c = pcCaps.get(k); if (c) { pcCaps.delete(k); try { c.p.kill(); } catch (_) {} } }
+  return { ok: true };
+}
+
 // ---------- servidor de sinalização embutido (tipo Radmin) ----------
 function startPeerServer(port) {
   port = Number(port) || 9000;
@@ -377,6 +463,14 @@ function createWindow() {
   // links externos abrem no navegador, não numa janela do app
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
 
+  // o player do YouTube recusa tocar (erro 153) quando o pedido não diz de onde veio; uma página local não manda isso
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["https://www.youtube.com/*", "https://www.youtube-nocookie.com/*", "https://*.googlevideo.com/*", "https://*.ytimg.com/*"] },
+    (d, cb) => {
+      const hd = d.requestHeaders;
+      if (!hd.Referer && !hd.referer) hd.Referer = "https://github.com/pauloestefani/T-t-o"; // identifica o app de verdade
+      cb({ requestHeaders: hd });
+    });
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => callback(true));
   session.defaultSession.setPermissionCheckHandler(() => true); // nomes dos microfones/fones e troca de saída de áudio
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
@@ -400,7 +494,7 @@ function createWindow() {
     const r = resumeArg(); if (r) send("lan:resume", r);
   });
   // saiu da sala (a tela recarrega): desliga a placa de rede
-  win.webContents.on("did-start-loading", () => { if (lan.running) lanStop(); });
+  win.webContents.on("did-start-loading", () => { if (lan.running) lanStop(); pcStop(); });
   setInterval(checkUpdate, 30 * 60 * 1000); // re-checa a cada 30 min
   win.on("closed", () => { win = null; });
 }
@@ -420,6 +514,10 @@ ipcMain.handle("lan:start", (_e, o) => lanStart(o));
 ipcMain.handle("lan:stop", () => lanStop());
 ipcMain.handle("lan:elevate", (_e, r) => relaunchElevated(r));
 ipcMain.on("lan:out", (_e, buf) => { try { lanWrite(buf); } catch (_) {} });
+ipcMain.handle("pcaudio:available", () => pcAvailable());
+ipcMain.handle("pcaudio:list", () => pcList());
+ipcMain.handle("pcaudio:start", (_e, o) => pcStart(o));
+ipcMain.handle("pcaudio:stop", (_e, id) => pcStop(id));
 ipcMain.on("share:opts", (_e, o) => {
   o = o || {};
   shareOpts = { type: ["screen", "window", "all"].includes(o.type) ? o.type : "all", audio: o.audio !== false };
@@ -440,5 +538,5 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(createWindow);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} lanStop(); });
+  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} lanStop(); pcStop(); });
 }

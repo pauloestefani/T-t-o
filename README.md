@@ -20,6 +20,9 @@ Na aba **Rede LAN**, o Tátão cria uma placa de rede virtual (`TataoLAN`, via [
 
 O `wintun.dll` não fica no repositório: o build do GitHub Actions baixa a versão oficial assinada. Pra build local, coloque `wintun.dll` (amd64) e `LICENSE.txt` em `vendor/` como `vendor/wintun.dll` e `vendor/wintun-LICENSE.txt`.
 
+## Áudio do PC (Spotify ou qualquer app)
+No painel **Música**, escolha o app (Spotify, navegador…) ou "Todo o som do PC" e clique em **Compartilhar áudio**. Os amigos ouvem em estéreo, com volume próprio. O `tatao-audio.exe` (código em `native/tatao-audio.cpp`, compilado pelo GitHub Actions) usa a captura por processo do Windows 10 2004+/11, então o som do próprio Tátão (as vozes da sala) nunca entra — isso também vale pro som da transmissão de tela.
+
 ## Auto-update
 O app lê `resources/update.json` (campo `repo`) e, ao abrir, checa o último **Release** deste GitHub. Se a tag for maior que a versão instalada, baixa o `.zip` anexado, troca os arquivos e reinicia. Veja `COMO-ATUALIZAR.txt`.
 

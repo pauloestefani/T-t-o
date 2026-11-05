@@ -37,9 +37,9 @@ clean(path.join(STAGE, "node_modules"));
 
 // 4) recursos que ficam soltos ao lado do app (o Windows precisa deles como arquivos de verdade)
 const extra = [path.join(ROOT, "update.json")];
-for (const f of ["wintun.dll", "wintun-LICENSE.txt"]) {
+for (const f of ["wintun.dll", "wintun-LICENSE.txt", "tatao-audio.exe"]) {
   const p = path.join(ROOT, "vendor", f);
-  if (fs.existsSync(p)) extra.push(p); else console.log("aviso: vendor/" + f + " não encontrado (a rede LAN não vai funcionar neste build)");
+  if (fs.existsSync(p)) extra.push(p); else console.log("aviso: vendor/" + f + " não encontrado (a rede LAN ou o áudio do PC não vão funcionar neste build)");
 }
 
 // 5) empacota Windows x64

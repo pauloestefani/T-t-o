@@ -52,6 +52,33 @@ jobs:
           $lic = Get-ChildItem -Recurse wintun-x -Filter LICENSE.txt | Select-Object -First 1
           if ($lic) { Copy-Item $lic.FullName vendor/wintun-LICENSE.txt }
 
+      - name: Compilar o capturador de áudio (tatao-audio.exe)
+        if: steps.check.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force vendor | Out-Null
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }
+          if ($vs) {
+            Write-Host "compilando com MSVC ($vs)"
+            cmd /c "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && cl /nologo /O2 /EHsc /MT /W3 native\tatao-audio.cpp /Fe:vendor\tatao-audio.exe /link ole32.lib mmdevapi.lib"
+            if ($LASTEXITCODE -ne 0) { throw "cl falhou" }
+          } else {
+            Write-Host "compilando com g++"
+            g++ -O2 -static -s -o vendor/tatao-audio.exe native/tatao-audio.cpp -lole32 -lmmdevapi -luuid
+            if ($LASTEXITCODE -ne 0) { throw "g++ falhou" }
+          }
+          Remove-Item -ErrorAction SilentlyContinue vendor\*.obj, *.obj
+          Get-Item vendor/tatao-audio.exe | Format-List Name,Length
+          # só pra ver se o programa abre (a máquina do GitHub não tem placa de som)
+          $p = Start-Process -FilePath vendor/tatao-audio.exe -ArgumentList "list","0" -NoNewWindow -PassThru -Wait -RedirectStandardOutput list-out.txt -RedirectStandardError list-err.txt
+          Write-Host ("list: código " + $p.ExitCode); Get-Content list-out.txt, list-err.txt -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath vendor/tatao-audio.exe -ArgumentList "capture","exclude","$PID","0" -NoNewWindow -PassThru -RedirectStandardOutput cap-out.bin -RedirectStandardError cap-err.txt
+          if (-not $p.WaitForExit(4000)) { Stop-Process -Id $p.Id -Force; Write-Host "capture: rodando (encerrado pelo teste)" } else { Write-Host ("capture: código " + $p.ExitCode) }
+          Get-Content cap-err.txt -ErrorAction SilentlyContinue
+          if (Test-Path cap-out.bin) { Write-Host ("bytes capturados: " + (Get-Item cap-out.bin).Length) }
+          exit 0
+
       - name: Compilar o app
         if: steps.check.outputs.skip == 'false'
         run: node build.js
