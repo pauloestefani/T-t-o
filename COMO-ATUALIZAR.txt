@@ -1,0 +1,47 @@
+TÁTÃO — como lançar atualizações (auto-update via GitHub Releases)
+===================================================================
+
+COMO O AUTO-UPDATE FUNCIONA
+- Ao abrir, o Tátão lê o arquivo  resources\update.json  (fica dentro da pasta do app)
+  e pega o campo "repo" (ex: "rafa/tatao").
+- Ele consulta o ÚLTIMO Release desse repositório no GitHub.
+- Se a tag do Release for MAIOR que a versão atual, ele baixa o .zip anexado,
+  extrai, troca os próprios arquivos e reinicia já na versão nova.
+- Barra azul no topo mostra "Baixando…" e depois "Reiniciar agora".
+
+PASSO A PASSO PRA LIGAR (uma vez só)
+1) Abra  resources\update.json  (na pasta onde está o Tatao.exe) e coloque seu repo:
+      { "repo": "SEU_USUARIO/SEU_REPO" }
+   (repositório PÚBLICO — assim o app lê sem senha)
+2) Pronto. Distribua essa pasta/zip pros amigos.
+
+PRA LANÇAR UMA VERSÃO NOVA
+1) Suba o número da versão em:
+     - package.json            ("version")
+     - sala-lan.html           (meta app-version, var APP_VERSION, #verLabel)
+2) Gere o .exe:
+     npm install
+     node build.js
+     (sai em  dist\Tatao-win32-x64\ ; zipe a pasta como Tatao-Windows.zip)
+3) No GitHub: Releases -> "Draft a new release"
+     - Tag: v1.6.0  (tem que ser MAIOR que a atual)
+     - Anexe o arquivo  Tatao-Windows.zip
+     - Publish release
+4) Os apps de todo mundo detectam sozinhos e se atualizam. Não precisa reenviar nada.
+
+REGRAS IMPORTANTES
+- A tag do Release precisa ser no formato vX.Y.Z (ex: v1.6.0) e MAIOR que a atual.
+- O anexo do Release precisa ser um .zip contendo a pasta com o Tatao.exe.
+- O app precisa estar numa pasta com permissão de escrita (Desktop, Documentos, Downloads).
+  NÃO use C:\Program Files (exige administrador e o auto-update falha).
+- Repositório/Releases PÚBLICOS (repo privado exigiria token embutido, inseguro).
+
+ARQUIVOS DO PROJETO
+  sala-lan.html  -> interface e lógica (voz, tela, chat, auto-login, barra de update)
+  main.js        -> janela, captura de tela, servidor embutido, auto-update (baixa/extrai/troca)
+  preload.js     -> ponte segura app <-> sistema
+  update.json    -> onde vai o "repo" (copiado para resources/ no build)
+  build.js       -> empacotamento
+
+ONDE FICAM AS CONFIGS DO USUÁRIO
+  Windows:  %APPDATA%\tatao\config.json  (nome, sala, auto-login, etc.)

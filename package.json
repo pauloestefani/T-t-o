@@ -1,0 +1,21 @@
+{
+  "name": "tatao",
+  "productName": "Tátão",
+  "version": "1.7.0",
+  "description": "Voz, tela e chat P2P para jogar em LAN",
+  "main": "main.js",
+  "author": "Sala LAN",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "node build.js"
+  },
+  "dependencies": {
+    "peer": "1.0.2",
+    "extract-zip": "2.0.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "18.3.6",
+    "electron": "31.7.6"
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "repo": "pauloestefani/T-t-o",
+  "_ajuda": "Coloque seu repositorio do GitHub no formato usuario/repositorio (ex: \"repo\": \"rafa/tatao\"). O Tatao checa os Releases desse repo ao abrir e se atualiza sozinho. Deixe vazio para desligar."
+}
