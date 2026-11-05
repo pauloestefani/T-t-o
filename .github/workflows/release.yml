@@ -2,8 +2,7 @@ name: Release Tátão
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
 
 permissions:
   contents: write
@@ -16,19 +15,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Verificar versão / se já existe release
+        id: check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = node -p "require('./package.json').version"
+          "ver=$ver" >> $env:GITHUB_OUTPUT
+          gh release view "v$ver" --repo ${{ github.repository }} *> $null
+          if ($LASTEXITCODE -eq 0) { "skip=true" >> $env:GITHUB_OUTPUT; Write-Host "Release v$ver já existe — pulando." }
+          else { "skip=false" >> $env:GITHUB_OUTPUT; Write-Host "Vai publicar v$ver." }
+
       - name: Instalar dependências
+        if: steps.check.outputs.skip == 'false'
         run: npm install
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
       - name: Compilar o app
+        if: steps.check.outputs.skip == 'false'
         run: node build.js
+
       - name: Zipar
+        if: steps.check.outputs.skip == 'false'
         shell: pwsh
         run: Compress-Archive -Path "dist/Tatao-win32-x64" -DestinationPath "Tatao-Windows.zip" -Force
+
       - name: Publicar Release
+        if: steps.check.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          name: Tátão ${{ github.ref_name }}
+          tag_name: v${{ steps.check.outputs.ver }}
+          name: Tátão v${{ steps.check.outputs.ver }}
           files: Tatao-Windows.zip
           body: |
             Atualização do Tátão.
