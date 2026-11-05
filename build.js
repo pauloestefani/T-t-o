@@ -12,7 +12,7 @@ const pkg = require("./package.json");
 // 1) stage limpo com os arquivos do app
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.mkdirSync(STAGE, { recursive: true });
-for (const f of ["main.js", "preload.js", "lan-worker.js", "sala-lan.html", "icon.ico", "update.json"]) {
+for (const f of ["main.js", "preload.js", "lan-worker.js", "sala-lan.html", "splash.html", "icon.ico", "update.json"]) {
   fs.copyFileSync(path.join(ROOT, f), path.join(STAGE, f));
 }
 fs.writeFileSync(path.join(STAGE, "package.json"), JSON.stringify({

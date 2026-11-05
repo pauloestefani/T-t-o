@@ -1,6 +1,6 @@
 // Tátão — processo principal (Electron)
 // Janela + captura de tela + memória de configs + servidor embutido + AUTO-UPDATE (GitHub Releases).
-const { app, BrowserWindow, session, desktopCapturer, ipcMain, Menu, shell } = require("electron");
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, Menu, shell, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -558,14 +558,88 @@ function applyUpdate(newDir) {
 
 // ---------- janela ----------
 let shareOpts = { type: "all", audio: true }; // definido pela tela antes de cada transmissão
+// ---------- abertura (logo + barra) e tamanho da janela: pequena pra entrar, grande na sala ----------
+const THEME_COLORS = { grafite: { bg: "#20252d", track: "#303843", bar: "#99f1b6" }, creme: { bg: "#f4ecdc", track: "#e2d6bf", bar: "#1b7349" }, noite: { bg: "#121722", track: "#212938", bar: "#8fd0ff" } };
+function themeColors() { return THEME_COLORS[readCfg().theme] || THEME_COLORS.grafite; }
+let splash = null, splashP = 0, splashStart = 0, appShown = false;
+function createSplash() {
+  const c = themeColors();
+  splashStart = Date.now();
+  splash = new BrowserWindow({ width: 300, height: 320, frame: false, resizable: false, maximizable: false, fullscreenable: false, show: false,
+    backgroundColor: c.bg, title: "Tátão", icon: path.join(__dirname, "icon.ico"), webPreferences: { contextIsolation: true, nodeIntegration: false } });
+  splash.loadFile(path.join(__dirname, "splash.html"), { query: { bg: c.bg, track: c.track, bar: c.bar } });
+  splash.once("ready-to-show", () => { if (splash && !appShown) { splash.show(); splashProgress(splashP || 0.12); } });
+  splash.on("closed", () => { splash = null; });
+}
+function splashProgress(p) {
+  splashP = Math.max(splashP, p);
+  if (splash && !splash.isDestroyed()) splash.webContents.executeJavaScript("window.setP&&setP(" + splashP + ")").catch(() => {});
+}
+function revealMain() {
+  if (appShown || !win || win.isDestroyed()) return;
+  appShown = true; splashProgress(1);
+  const wait = Math.max(0, 900 - (Date.now() - splashStart)); // a abertura fica pelo menos ~1 s, pra não piscar
+  setTimeout(() => {
+    if (win && !win.isDestroyed()) { win.show(); win.focus(); }
+    setTimeout(() => { try { if (splash && !splash.isDestroyed()) splash.close(); } catch (_) {} }, 150);
+  }, wait + 260);
+}
+const LOGIN_W = 480;
+let winMode = null, loginH = 560;
+const WINSTATE = path.join(app.getPath("userData"), "window.json");
+function readWinState() { try { return JSON.parse(fs.readFileSync(WINSTATE, "utf8")); } catch (_) { return null; } }
+function saveWinState() {
+  if (!win || win.isDestroyed() || winMode !== "full") return;
+  try { fs.writeFileSync(WINSTATE, JSON.stringify({ bounds: win.isMaximized() ? win.getNormalBounds() : win.getBounds(), max: win.isMaximized() })); } catch (_) {}
+}
+function visibleOnScreen(b) {
+  try { const wa = screen.getDisplayMatching(b).workArea; return b.x < wa.x + wa.width - 80 && b.x + b.width > wa.x + 80 && b.y >= wa.y - 10 && b.y < wa.y + wa.height - 80; } catch (_) { return false; }
+}
+function setLoginMode(h) {
+  if (!win || win.isDestroyed()) return;
+  const H = Math.max(380, Math.min(880, Math.round(+h || loginH)));
+  const fromFull = winMode !== "login";
+  if (winMode === "full") saveWinState();
+  const before = win.getBounds(), cx = before.x + before.width / 2, cy = before.y + before.height / 2;
+  winMode = "login"; loginH = H;
+  if (win.isFullScreen()) win.setFullScreen(false);
+  if (win.isMaximized()) win.unmaximize();
+  win.setResizable(true); win.setMinimumSize(1, 1);
+  win.setContentSize(LOGIN_W, H);
+  win.setResizable(false); win.setMaximizable(false); win.setFullScreenable(false);
+  if (fromFull) { // centraliza onde a janela estava
+    const b = win.getBounds();
+    if (appShown) win.setPosition(Math.round(cx - b.width / 2), Math.round(cy - b.height / 2)); else win.center();
+  }
+}
+function setFullMode() {
+  if (!win || win.isDestroyed() || winMode === "full") return;
+  const before = win.getBounds(), cx = before.x + before.width / 2, cy = before.y + before.height / 2;
+  winMode = "full";
+  win.setResizable(true); win.setMaximizable(true); win.setFullScreenable(true);
+  win.setMinimumSize(820, 560);
+  const st = readWinState();
+  if (st && st.bounds && visibleOnScreen(st.bounds)) win.setBounds(st.bounds);
+  else { win.setSize(1280, 820); const b = win.getBounds(); win.setPosition(Math.max(0, Math.round(cx - b.width / 2)), Math.max(0, Math.round(cy - b.height / 2))); }
+  if (st && st.max) win.maximize();
+}
+
 function createWindow() {
+  createSplash();
   win = new BrowserWindow({
-    width: 1280, height: 820, minWidth: 820, minHeight: 560,
+    width: LOGIN_W, height: loginH, useContentSize: true, resizable: false, maximizable: false, show: false,
     backgroundColor: ({ creme: "#f4ecdc", noite: "#121722" })[readCfg().theme] || "#20252d", autoHideMenuBar: true, title: "Tátão",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
+  splashProgress(0.2);
   win.loadFile(path.join(__dirname, "sala-lan.html"));
+  win.webContents.once("dom-ready", () => splashProgress(0.7));
+  setTimeout(revealMain, 12000); // se algo travar, mostra a janela mesmo assim
+  let stTimer = null;
+  const queueSave = () => { if (winMode !== "full") return; clearTimeout(stTimer); stTimer = setTimeout(saveWinState, 400); };
+  win.on("resize", queueSave); win.on("move", queueSave);
+  win.on("close", saveWinState);
   // links externos abrem no navegador, não numa janela do app
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
 
@@ -596,13 +670,14 @@ function createWindow() {
   });
 
   win.webContents.once("did-finish-load", () => {
+    splashProgress(0.85);
     setTimeout(checkUpdate, 4000);
     const r = resumeArg(); if (r) send("lan:resume", r);
   });
   // saiu da sala (a tela recarrega): desliga a placa de rede
   win.webContents.on("did-start-loading", () => { if (lan.running) lanStop(); pcStop(); });
   setInterval(checkUpdate, 30 * 60 * 1000); // re-checa a cada 30 min
-  win.on("closed", () => { win = null; });
+  win.on("closed", () => { win = null; try { if (splash && !splash.isDestroyed()) splash.close(); } catch (_) {} });
 }
 
 // ---------- IPC ----------
@@ -624,6 +699,8 @@ ipcMain.handle("music:resolve", (_e, url) => deezerResolve(url).catch((e) => ({ 
 ipcMain.handle("music:search", (_e, o) => ytSearch(o).catch(() => ({ ok: false, error: "net" })));
 ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), app: !!String(appKeys().ytKey || "").trim() }));
 ipcMain.handle("music:testKey", (_e, k) => ytTestKey(k));
+ipcMain.on("win:mode", (_e, o) => { o = o || {}; if (o.mode === "full") setFullMode(); else setLoginMode(o.h); });
+ipcMain.on("app:ready", () => revealMain());
 ipcMain.on("theme:bg", (_e, c) => { try { if (win && !win.isDestroyed() && /^#[0-9a-f]{6}$/i.test(String(c))) win.setBackgroundColor(String(c)); } catch (_) {} });
 ipcMain.handle("pcaudio:available", () => pcAvailable());
 ipcMain.handle("pcaudio:list", () => pcList());
@@ -646,7 +723,7 @@ ipcMain.handle("yt:title", (_e, id) => new Promise((resolve) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+  app.on("second-instance", () => { if (win && appShown) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(createWindow);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
