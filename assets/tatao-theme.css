@@ -1,0 +1,209 @@
+/* Tátão — grafite, creme e menta.
+   Tokens e classes de apoio: integrar ao DOM existente conforme o guia.
+   Não é um patch completo nem substitui a revisão das funções de render. */
+:root {
+  color-scheme: dark;
+  --t-bg: #20252d;
+  --t-bg-deep: #191e25;
+  --t-surface: #282e37;
+  --t-surface-raised: #303843;
+  --t-text: #fdf5e5;
+  --t-muted: #b8b9af;
+  --t-faint: #9da6a7;
+  --t-accent: #99f1b6;
+  --t-accent-hover: #b0f6c7;
+  --t-accent-pressed: #7dd59a;
+  --t-on-accent: #20252d;
+  --t-border: #46515e;
+  --t-control-border: #78858d;
+  --t-danger: #f0a79e;
+  --t-danger-surface: #3b2b2e;
+  --t-warning: #e3c58c;
+  --t-success: #99f1b6;
+  --t-success-surface: #263e34;
+  --t-font: Inter, "Segoe UI", Arial, sans-serif;
+  --t-mono: "Cascadia Mono", Consolas, monospace;
+  --t-radius-sm: 8px;
+  --t-radius-md: 12px;
+  --t-radius-lg: 16px;
+  --t-space-1: 4px;
+  --t-space-2: 8px;
+  --t-space-3: 12px;
+  --t-space-4: 16px;
+  --t-space-5: 20px;
+  --t-space-6: 24px;
+  --t-space-8: 32px;
+
+  /* Aliases dos tokens observados em sala-lan.html. */
+  --bg: var(--t-bg);
+  --side: var(--t-bg-deep);
+  --line: var(--t-border);
+  --panel: var(--t-surface);
+  --pline: var(--t-border);
+  --field: var(--t-bg-deep);
+  --fline: var(--t-control-border);
+  --btn: var(--t-surface-raised);
+  --btn-h: #3b4652;
+  --primary: var(--t-accent);
+  --primary-h: var(--t-accent-hover);
+  --danger: var(--t-danger-surface);
+  --text: var(--t-text);
+  --muted: var(--t-muted);
+  --soft: var(--t-muted);
+  --label: var(--t-text);
+  --online: var(--t-success);
+  --accent: var(--t-accent);
+  --navon: var(--t-success-surface);
+  --card: var(--t-surface-raised);
+  --note: var(--t-surface);
+  --pillbg: var(--t-success-surface);
+  --pill: var(--t-accent);
+  --warn: var(--t-warning);
+  --bad: var(--t-danger);
+  --video: var(--t-bg-deep);
+  --mono: var(--t-mono);
+}
+
+/* Aplicar essas classes a wrappers reais, preservando os nós e IDs atuais. */
+.tatao-shell {
+  display: grid;
+  grid-template: 72px minmax(0, 1fr) / 80px minmax(0, 1fr);
+  min-width: 0;
+  height: 100dvh;
+  background: var(--t-bg);
+  color: var(--t-text);
+  font: 400 14px/1.45 var(--t-font);
+}
+.tatao-shell *, .tatao-shell *::before, .tatao-shell *::after {
+  box-sizing: border-box;
+}
+.tatao-topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-inline: 24px;
+  border-bottom: 1px solid var(--t-border);
+}
+.tatao-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 12px;
+  background: var(--t-bg-deep);
+  border-right: 1px solid var(--t-border);
+}
+.tatao-content {
+  min-width: 0;
+  min-height: 0;
+  padding: 24px;
+  overflow: auto;
+}
+.tatao-room-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 28vw, 360px);
+  align-items: start;
+  gap: 20px;
+}
+.tatao-stage-column, .tatao-social-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.tatao-panel {
+  min-width: 0;
+  padding: 20px;
+  background: var(--t-surface);
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius-lg);
+}
+.tatao-voice-console, .tatao-lan-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--t-surface);
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius-lg);
+}
+.tatao-control, .tatao-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  border: 1px solid var(--t-control-border);
+  border-radius: var(--t-radius-md);
+  background: var(--t-surface-raised);
+  color: var(--t-text);
+  font: 600 14px/1.3 var(--t-font);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.tatao-primary {
+  border-color: transparent;
+  border-radius: 999px;
+  background: var(--t-accent);
+  color: var(--t-on-accent);
+}
+.tatao-primary:not(:disabled):hover { background: var(--t-accent-hover); }
+.tatao-primary:not(:disabled):active { background: var(--t-accent-pressed); }
+.tatao-control:not(:disabled):hover { background: #3b4652; }
+.tatao-control:disabled, .tatao-primary:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.tatao-shell :is(button, input, select, textarea, a, summary):focus-visible {
+  outline: 2px solid var(--t-accent);
+  outline-offset: 3px;
+}
+.tatao-shell :is(input, select, textarea) {
+  max-width: 100%;
+  color: var(--t-text);
+  background: var(--t-bg-deep);
+  border-color: var(--t-control-border);
+}
+.tatao-shell :is(input, textarea)::placeholder { color: var(--t-muted); }
+.tatao-shell :is(p, li, .message) { overflow-wrap: anywhere; }
+
+/* Corrigir o texto sobre a cor primária antiga ao migrar a folha existente.
+   Conferir a cascata e eventuais estilos inline na versão local. */
+.btn.primary {
+  color: var(--t-on-accent);
+  background: var(--t-accent);
+}
+.btn.primary:hover { background: var(--t-accent-hover); }
+.btn.primary:active { background: var(--t-accent-pressed); }
+
+/* Nunca tornar visíveis elementos ocultados pela lógica existente. */
+[hidden], .hidden { display: none !important; }
+
+@media (max-width: 1179px) {
+  .tatao-room-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 799px) {
+  .tatao-shell {
+    grid-template: auto auto minmax(0, 1fr) / minmax(0, 1fr);
+  }
+  .tatao-topbar { padding: 12px 16px; flex-wrap: wrap; gap: 12px; }
+  .tatao-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 8px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--t-border);
+  }
+  .tatao-content { padding: 16px; }
+  .tatao-panel { padding: 16px; }
+  .tatao-voice-console, .tatao-lan-strip { padding: 12px; }
+}
+@media (pointer: coarse) {
+  .tatao-control, .tatao-primary { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tatao-control, .tatao-primary { transition: none; }
+}

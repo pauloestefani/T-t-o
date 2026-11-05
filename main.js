@@ -561,7 +561,7 @@ let shareOpts = { type: "all", audio: true }; // definido pela tela antes de cad
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 820, minHeight: 560,
-    backgroundColor: "#0b111d", autoHideMenuBar: true, title: "Tátão",
+    backgroundColor: "#20252d", autoHideMenuBar: true, title: "Tátão",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
