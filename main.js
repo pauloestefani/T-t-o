@@ -561,7 +561,7 @@ let shareOpts = { type: "all", audio: true }; // definido pela tela antes de cad
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 820, minHeight: 560,
-    backgroundColor: "#20252d", autoHideMenuBar: true, title: "Tátão",
+    backgroundColor: ({ creme: "#f4ecdc", noite: "#121722" })[readCfg().theme] || "#20252d", autoHideMenuBar: true, title: "Tátão",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
@@ -624,6 +624,7 @@ ipcMain.handle("music:resolve", (_e, url) => deezerResolve(url).catch((e) => ({ 
 ipcMain.handle("music:search", (_e, o) => ytSearch(o).catch(() => ({ ok: false, error: "net" })));
 ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), app: !!String(appKeys().ytKey || "").trim() }));
 ipcMain.handle("music:testKey", (_e, k) => ytTestKey(k));
+ipcMain.on("theme:bg", (_e, c) => { try { if (win && !win.isDestroyed() && /^#[0-9a-f]{6}$/i.test(String(c))) win.setBackgroundColor(String(c)); } catch (_) {} });
 ipcMain.handle("pcaudio:available", () => pcAvailable());
 ipcMain.handle("pcaudio:list", () => pcList());
 ipcMain.handle("pcaudio:start", (_e, o) => pcStart(o));
