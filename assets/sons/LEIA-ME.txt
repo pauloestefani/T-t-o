@@ -1,7 +1,9 @@
 Sons do Tátão (originais em WAV, já sem o silêncio do fim). O app usa versões MP3 embutidas no sala-lan.html.
-  Entrar.wav               -> você entra na sala
-  Sair.wav                 -> você sai da sala
+  Sair.wav                 -> você entra na sala   (trocado a pedido: o "Sair" toca na entrada)
+  Entrar.wav               -> você sai da sala     (trocado a pedido: o "Entrar" toca na saída)
   terceiros_entrando.wav   -> outra pessoa entra
   terceiros_saindo.wav     -> outra pessoa sai
   mensagem_de_texto.wav    -> mensagem nova na Resenha
+  mutar_mic.wav            -> você desliga o microfone
+  mutar_tudo.wav           -> você silencia tudo (fone)
   Chamada.wav              -> reservado para a função de chamada (ainda não existe)
