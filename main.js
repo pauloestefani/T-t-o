@@ -29,6 +29,7 @@ function lanIps() {
 function classifyNet(name, ip) {
   const n = String(name).toLowerCase();
   const p = ip.split(".").map(Number);
+  if (n.includes("tataolan")) return "tatao";
   if (n.includes("radmin") || p[0] === 26) return "radmin";
   if (n.includes("zerotier")) return "zerotier";
   if (n.includes("tailscale") || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)) return "tailscale";
@@ -85,6 +86,135 @@ function lanProbe(ip) {
     s.on("data", (d) => { if (String(d).indexOf("TATAO") === 0) fin({ ok: true, ms: Date.now() - t0, method: "tatao" }); });
     s.on("error", () => fin(null));
   }).then((r) => r || pingIp(ip));
+}
+
+// ---------- Rede LAN do Tátão: placa de rede virtual (Wintun) + túnel P2P pela conexão da sala ----------
+// O Windows manda os pacotes do jogo pra placa "TataoLAN"; o Tátão leva cada pacote direto pro PC do amigo
+// pelo canal WebRTC criptografado e escreve na placa dele. Igual ao Radmin, mas sem servidor no meio.
+const { Worker } = require("worker_threads");
+const LAN_NAME = "TataoLAN";
+const LAN_GUID = { Data1: 0x7a7a0001, Data2: 0x7a7a, Data3: 0x4c41, Data4: [0x4e, 0x54, 0x41, 0x54, 0x41, 0x4f, 0x30, 0x31] }; // fixo: o Windows reconhece sempre a mesma rede
+let lan = { running: false };
+let lanApi = null;
+function lanMockPath() { return !app.isPackaged && process.env.TATAO_LAN_MOCK ? process.env.TATAO_LAN_MOCK : null; } // só em teste de desenvolvimento
+function isAdmin() {
+  if (process.platform !== "win32") return true;
+  try { require("child_process").execSync("net session", { stdio: "ignore", windowsHide: true }); return true; } catch (_) { return false; }
+}
+function runCmd(cmd, args) {
+  return new Promise((res) => {
+    let out = "", p;
+    try { p = spawn(cmd, args, { windowsHide: true }); } catch (e) { res({ code: -1, out: String(e) }); return; }
+    if (p.stdout) p.stdout.on("data", (d) => out += d);
+    if (p.stderr) p.stderr.on("data", (d) => out += d);
+    p.on("error", (e) => res({ code: -1, out: String(e) }));
+    p.on("close", (c) => res({ code: c, out }));
+  });
+}
+function hasIp(ip) { const ifs = os.networkInterfaces(); for (const k in ifs) for (const a of ifs[k]) if (a.address === ip) return true; return false; }
+async function configureLanIp(ip, mask) {
+  // a placa recém-criada pode levar um instante pra aceitar configuração
+  for (let i = 0; i < 8 && !hasIp(ip); i++) {
+    await runCmd("netsh", ["interface", "ipv4", "set", "address", "name=" + LAN_NAME, "source=static", "address=" + ip, "mask=" + mask]);
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  if (!hasIp(ip)) return false;
+  // métrica baixa: a busca de partidas em LAN (broadcast) sai por esta placa
+  await runCmd("netsh", ["interface", "ipv4", "set", "interface", "interface=" + LAN_NAME, "metric=5"]);
+  await runCmd("netsh", ["interface", "ipv4", "set", "subinterface", LAN_NAME, "mtu=1380", "store=active"]);
+  // rede "Privada": o firewall do Windows deixa os jogos receberem conexões dos amigos
+  setTimeout(() => { runCmd("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Set-NetConnectionProfile -InterfaceAlias " + LAN_NAME + " -NetworkCategory Private"]); }, 6000);
+  return true;
+}
+function loadLanApi(dll) {
+  if (lanApi) return lanApi;
+  const koffi = require("koffi");
+  const L = koffi.load(dll);
+  koffi.struct("TATAO_GUID", { Data1: "uint32_t", Data2: "uint16_t", Data3: "uint16_t", Data4: koffi.array("uint8_t", 8) });
+  lanApi = {
+    koffi,
+    open: L.func("void *WintunOpenAdapter(const char16_t *Name)"),
+    create: L.func("void *WintunCreateAdapter(const char16_t *Name, const char16_t *TunnelType, const TATAO_GUID *RequestedGUID)"),
+    close: L.func("void WintunCloseAdapter(void *Adapter)"),
+    start: L.func("void *WintunStartSession(void *Adapter, uint32_t Capacity)"),
+    end: L.func("void WintunEndSession(void *Session)"),
+    event: L.func("void *WintunGetReadWaitEvent(void *Session)"),
+    alloc: L.func("uint8_t *WintunAllocateSendPacket(void *Session, uint32_t PacketSize)"),
+    sendp: L.func("void WintunSendPacket(void *Session, const uint8_t *Packet)")
+  };
+  return lanApi;
+}
+async function lanStart(opts) {
+  opts = opts || {};
+  const ip = String(opts.ip || ""), mask = String(opts.mask || "255.255.0.0");
+  if (!/^10\.77\.\d{1,3}\.\d{1,3}$/.test(ip)) return { ok: false, error: "IP da rede inválido." };
+  if (lan.running) { if (lan.ip === ip) return { ok: true, ip }; await lanStop(); }
+  const mock = lanMockPath();
+  if (process.platform !== "win32" && !mock) return { ok: false, error: "A rede LAN do Tátão funciona no Windows." };
+  if (!mock && !isAdmin()) return { ok: false, needAdmin: true };
+  const dll = mock || path.join(process.resourcesPath, "wintun.dll");
+  if (!fs.existsSync(dll)) return { ok: false, error: "O componente da placa de rede (wintun.dll) não veio junto com o app. Baixe o Tátão de novo pelo GitHub." };
+  let A;
+  try { A = loadLanApi(dll); } catch (e) { return { ok: false, error: "Não consegui carregar o componente de rede: " + ((e && e.message) || e) }; }
+  let adapter = A.open(LAN_NAME);
+  if (!adapter) adapter = A.create(LAN_NAME, "Tatao", LAN_GUID);
+  if (!adapter) return { ok: false, error: "O Windows não deixou criar a placa de rede virtual." };
+  const session = A.start(adapter, 0x400000); // 4 MB de fila
+  if (!session) { try { A.close(adapter); } catch (_) {} return { ok: false, error: "Não consegui ligar a placa de rede virtual." }; }
+  const ev = A.event(session);
+  if (!mock) {
+    const ok = await configureLanIp(ip, mask);
+    if (!ok) { try { A.end(session); A.close(adapter); } catch (_) {} return { ok: false, error: "A placa foi criada, mas o Windows não aceitou o IP " + ip + "." }; }
+  }
+  const stop = new Int32Array(new SharedArrayBuffer(4));
+  const wpath = path.join(__dirname, "lan-worker.js").replace("app.asar" + path.sep, "app.asar.unpacked" + path.sep);
+  let worker;
+  try { worker = new Worker(wpath, { workerData: { dll, session: A.koffi.address(session), event: A.koffi.address(ev), stop } }); }
+  catch (e) { try { A.end(session); A.close(adapter); } catch (_) {} return { ok: false, error: "Falha ao iniciar a leitura da rede: " + ((e && e.message) || e) }; }
+  const me = { running: true, ip, adapter, session, worker, stop, rx: 0, tx: 0 };
+  worker.on("message", (u8) => { me.rx++; send("lan:in", Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength)); });
+  worker.on("error", (e) => { if (lan === me) send("lan:status", { state: "error", error: String((e && e.message) || e) }); });
+  lan = me;
+  return { ok: true, ip };
+}
+function lanWrite(buf) {
+  if (!lan.running || !buf) return;
+  const n = buf.length >>> 0;
+  if (n < 20 || n > 65535) return;
+  const p = lanApi.alloc(lan.session, n);
+  if (!p) return; // fila cheia: descarta, como uma rede faria
+  lanApi.koffi.encode(p, "uint8_t", buf, n); // copia pro buffer do Wintun (o Electron não permite apontar direto)
+  lanApi.sendp(lan.session, p);
+  lan.tx++;
+}
+async function lanStop() {
+  if (!lan.running) return { ok: true };
+  const cur = lan; lan = { running: false };
+  Atomics.store(cur.stop, 0, 1);
+  await new Promise((r) => { const t = setTimeout(r, 1500); cur.worker.once("exit", () => { clearTimeout(t); r(); }); });
+  try { await cur.worker.terminate(); } catch (_) {}
+  try { lanApi.end(cur.session); } catch (_) {}
+  try { lanApi.close(cur.adapter); } catch (_) {}
+  return { ok: true };
+}
+// reabre o Tátão como administrador (o Windows pergunta) e volta pra mesma sala com a rede ligada
+function relaunchElevated(resume) {
+  if (process.platform !== "win32") return { ok: false };
+  const exe = app.getPath("exe").replace(/'/g, "''");
+  const arg = "--tatao-resume=" + Buffer.from(JSON.stringify(resume || {})).toString("base64");
+  const ps = "try { Start-Process -FilePath '" + exe + "' -ArgumentList '" + arg + "' -Verb RunAs -ErrorAction Stop } catch { Start-Process -FilePath '" + exe + "' }";
+  lanStop().finally(() => {
+    try { app.releaseSingleInstanceLock(); } catch (_) {}
+    spawn("powershell.exe", ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    setTimeout(() => app.quit(), 300);
+  });
+  return { ok: true };
+}
+function resumeArg() {
+  const pre = "--tatao-resume=";
+  const a = process.argv.find((x) => String(x).startsWith(pre));
+  if (!a) return null;
+  try { return JSON.parse(Buffer.from(a.slice(pre.length), "base64").toString("utf8")); } catch (_) { return null; }
 }
 
 // ---------- servidor de sinalização embutido (tipo Radmin) ----------
@@ -265,7 +395,12 @@ function createWindow() {
       }).catch(() => give(null));
   });
 
-  win.webContents.once("did-finish-load", () => { setTimeout(checkUpdate, 4000); });
+  win.webContents.once("did-finish-load", () => {
+    setTimeout(checkUpdate, 4000);
+    const r = resumeArg(); if (r) send("lan:resume", r);
+  });
+  // saiu da sala (a tela recarrega): desliga a placa de rede
+  win.webContents.on("did-start-loading", () => { if (lan.running) lanStop(); });
   setInterval(checkUpdate, 30 * 60 * 1000); // re-checa a cada 30 min
   win.on("closed", () => { win = null; });
 }
@@ -281,6 +416,10 @@ ipcMain.handle("open:external", (_e, url) => { try { if (/^https?:\/\//.test(Str
 ipcMain.handle("lan:info", () => lanInfo());
 ipcMain.handle("lan:listen", () => startProbe());
 ipcMain.handle("lan:probe", (_e, ip) => lanProbe(ip));
+ipcMain.handle("lan:start", (_e, o) => lanStart(o));
+ipcMain.handle("lan:stop", () => lanStop());
+ipcMain.handle("lan:elevate", (_e, r) => relaunchElevated(r));
+ipcMain.on("lan:out", (_e, buf) => { try { lanWrite(buf); } catch (_) {} });
 ipcMain.on("share:opts", (_e, o) => {
   o = o || {};
   shareOpts = { type: ["screen", "window", "all"].includes(o.type) ? o.type : "all", audio: o.audio !== false };
@@ -301,5 +440,5 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(createWindow);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} });
+  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} lanStop(); });
 }

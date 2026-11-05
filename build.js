@@ -12,7 +12,7 @@ const pkg = require("./package.json");
 // 1) stage limpo com os arquivos do app
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.mkdirSync(STAGE, { recursive: true });
-for (const f of ["main.js", "preload.js", "sala-lan.html", "icon.ico", "update.json"]) {
+for (const f of ["main.js", "preload.js", "lan-worker.js", "sala-lan.html", "icon.ico", "update.json"]) {
   fs.copyFileSync(path.join(ROOT, f), path.join(STAGE, f));
 }
 fs.writeFileSync(path.join(STAGE, "package.json"), JSON.stringify({
@@ -20,7 +20,7 @@ fs.writeFileSync(path.join(STAGE, "package.json"), JSON.stringify({
   dependencies: pkg.dependencies || {}
 }, null, 2));
 
-// 2) instala só as dependências de runtime (peer, extract-zip)
+// 2) instala só as dependências de runtime (peer, extract-zip, koffi)
 console.log("Instalando dependências de produção no stage…");
 cp.execSync("npm install --omit=dev --no-audit --no-fund --no-package-lock", { cwd: STAGE, stdio: "inherit" });
 
@@ -35,15 +35,26 @@ function clean(dir) {
 }
 clean(path.join(STAGE, "node_modules"));
 
-// 4) empacota Windows x64
+// 4) recursos que ficam soltos ao lado do app (o Windows precisa deles como arquivos de verdade)
+const extra = [path.join(ROOT, "update.json")];
+for (const f of ["wintun.dll", "wintun-LICENSE.txt"]) {
+  const p = path.join(ROOT, "vendor", f);
+  if (fs.existsSync(p)) extra.push(p); else console.log("aviso: vendor/" + f + " não encontrado (a rede LAN não vai funcionar neste build)");
+}
+
+// 5) empacota Windows x64
 (async () => {
   const out = await packager({
     dir: STAGE, name: "Tatao", platform: "win32", arch: "x64",
-    out: path.join(ROOT, "dist"), overwrite: true, asar: true, prune: false,
+    out: path.join(ROOT, "dist"), overwrite: true, prune: false,
+    // koffi e a thread da rede ficam fora do .asar: binários nativos e workers precisam de arquivos reais
+    asar: { unpack: "**/lan-worker.js", unpackDir: "node_modules/koffi" },
+    // da koffi, só o binário do Windows x64 e o código que ela carrega
+    ignore: [/^\/node_modules\/koffi\/build\/koffi\/(?!win32_x64)/, /^\/node_modules\/koffi\/(src|vendor|doc)(\/|$)/],
     icon: path.join(ROOT, "icon.ico"),
-    extraResource: [path.join(ROOT, "update.json")],
+    extraResource: extra,
     appVersion: pkg.version, appCopyright: "Tatao",
-    win32metadata: { CompanyName: "Tatao", FileDescription: "Tátão - voz, tela, chat e música", ProductName: "Tátão" },
+    win32metadata: { CompanyName: "Tatao", FileDescription: "Tátão - voz, tela, chat, música e rede LAN", ProductName: "Tátão" },
     electronVersion: "31.7.6"
   });
   console.log("OUT=" + out);

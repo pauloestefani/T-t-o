@@ -35,6 +35,23 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
+      - name: Baixar o Wintun (driver da placa de rede virtual)
+        if: steps.check.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile wintun.zip
+          Write-Host ("sha256 do zip: " + (Get-FileHash wintun.zip -Algorithm SHA256).Hash)
+          Expand-Archive wintun.zip -DestinationPath wintun-x -Force
+          $dll = Get-ChildItem -Recurse wintun-x -Filter wintun.dll | Where-Object { $_.FullName -match '\\amd64\\' } | Select-Object -First 1
+          if (-not $dll) { throw "wintun.dll (amd64) nao encontrado no zip" }
+          $sig = Get-AuthenticodeSignature $dll.FullName
+          Write-Host ("assinatura: " + $sig.Status + " | " + $sig.SignerCertificate.Subject)
+          if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notmatch "WireGuard") { throw "assinatura do wintun.dll invalida" }
+          New-Item -ItemType Directory -Force vendor | Out-Null
+          Copy-Item $dll.FullName vendor/wintun.dll
+          $lic = Get-ChildItem -Recurse wintun-x -Filter LICENSE.txt | Select-Object -First 1
+          if ($lic) { Copy-Item $lic.FullName vendor/wintun-LICENSE.txt }
+
       - name: Compilar o app
         if: steps.check.outputs.skip == 'false'
         run: node build.js
