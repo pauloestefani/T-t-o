@@ -1,0 +1,35 @@
+name: Release Tátão
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar dependências
+        run: npm install
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Compilar o app
+        run: node build.js
+      - name: Zipar
+        shell: pwsh
+        run: Compress-Archive -Path "dist/Tatao-win32-x64" -DestinationPath "Tatao-Windows.zip" -Force
+      - name: Publicar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Tátão ${{ github.ref_name }}
+          files: Tatao-Windows.zip
+          body: |
+            Atualização do Tátão.
+            Baixe o Tatao-Windows.zip, extraia e abra o Tatao.exe (fora de C:\Program Files).

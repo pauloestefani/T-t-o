@@ -3,3 +3,4 @@ dist/
 app-stage/
 *.zip
 _*
+.stage/
