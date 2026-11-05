@@ -303,6 +303,112 @@ function pcStop(id) {
   return { ok: true };
 }
 
+// ---------- música: links do Deezer viram lista de faixas; cada faixa é achada no YouTube ----------
+// O Deezer tem API pública (sem chave). A busca no YouTube usa a API oficial e precisa de uma chave grátis.
+const elNet = require("electron").net;
+function appKeys() { try { return JSON.parse(fs.readFileSync(path.join(process.resourcesPath, "keys.json"), "utf8")) || {}; } catch (_) { return {}; } }
+function userYtKey() { return String(readCfg().ytKey || "").trim(); }
+function ytKey() { return userYtKey() || String(appKeys().ytKey || "").trim(); }
+async function getJson(url, opts) {
+  const r = await elNet.fetch(url, Object.assign({ headers: { "User-Agent": "Tatao/" + app.getVersion() } }, opts || {}));
+  const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch (_) {}
+  return { status: r.status, json, url: r.url, text };
+}
+const DZ_RE = /deezer\.com\\?\/(?:[a-z]{2}(?:-[a-z]{2})?\\?\/)?(track|playlist|album)\\?\/(\d+)/i;
+async function deezerResolve(raw) {
+  const u = String(raw || "").trim();
+  let m = DZ_RE.exec(u);
+  if (!m) { // link curto (link.deezer.com/s/…): segue o redirecionamento
+    try {
+      const r = await elNet.fetch(u, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0" } });
+      m = DZ_RE.exec(r.url || "") || DZ_RE.exec(await r.text());
+    } catch (_) {}
+  }
+  if (!m) return { ok: false, error: "Não reconheci esse link do Deezer." };
+  const kind = m[1].toLowerCase(), id = m[2];
+  const map = (t) => ({ title: String(t.title || ""), artist: String((t.artist && t.artist.name) || ""), dur: +t.duration || 0 });
+  if (kind === "track") {
+    const r = await getJson("https://api.deezer.com/track/" + id);
+    if (!r.json || r.json.error || !r.json.title) return { ok: false, error: "O Deezer não achou essa música." };
+    return { ok: true, kind, title: r.json.title, items: [map(r.json)] };
+  }
+  const head = await getJson("https://api.deezer.com/" + kind + "/" + id);
+  if (!head.json || head.json.error) return { ok: false, error: kind === "album" ? "O Deezer não achou esse álbum." : "O Deezer não achou essa playlist (ela é pública?)." };
+  const items = [];
+  let next = "https://api.deezer.com/" + kind + "/" + id + "/tracks?limit=100&index=0";
+  while (next && items.length < 300) {
+    const r = await getJson(next);
+    if (!r.json || !Array.isArray(r.json.data)) break;
+    r.json.data.forEach((t) => { if (t && t.title) items.push(map(t)); });
+    next = r.json.next && /^https:\/\/api\.deezer\.com\//.test(r.json.next) ? r.json.next : null;
+  }
+  if (!items.length) return { ok: false, error: "Essa lista do Deezer está vazia." };
+  return { ok: true, kind, title: String(head.json.title || ""), items: items.slice(0, 300) };
+}
+// cache das buscas (cada busca gasta cota da chave): arquivo separado das configurações
+const YT_CACHE = path.join(app.getPath("userData"), "yt-cache.json");
+let ytCache = null;
+function ytCacheGet(k) { if (!ytCache) { try { ytCache = JSON.parse(fs.readFileSync(YT_CACHE, "utf8")) || {}; } catch (_) { ytCache = {}; } } return ytCache[k]; }
+function ytCachePut(k, v) {
+  ytCacheGet(k); delete ytCache[k]; ytCache[k] = v;
+  const ks = Object.keys(ytCache); if (ks.length > 1500) ks.slice(0, ks.length - 1500).forEach((x) => delete ytCache[x]);
+  try { fs.writeFileSync(YT_CACHE, JSON.stringify(ytCache)); } catch (_) {}
+}
+function normTxt(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim(); }
+function unEnt(s) { return String(s || "").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"); }
+function isoDur(s) { const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(s || ""); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; }
+function ytErrCode(r) {
+  const e = r.json && r.json.error, reason = (e && e.errors && e.errors[0] && e.errors[0].reason) || "";
+  if (/quota|rateLimit/i.test(reason)) return "quota";
+  if (/keyInvalid|keyExpired/i.test(reason) || r.status === 400) return "badkey";
+  if (/accessNotConfigured|forbidden|ipRefererBlocked/i.test(reason) || r.status === 403) return "forbidden";
+  return "http" + r.status;
+}
+// versões que quase nunca são o que a pessoa quer (a não ser que o nome original tenha)
+const YT_BAD = ["live", "ao vivo", "en vivo", "cover", "karaoke", "sped up", "slowed", "8d", "nightcore", "instrumental", "acustico", "acoustic", "reaction", "react", "tutorial", "remix", "mashup", "1 hour", "10 hours", "loop"];
+async function ytSearch(o) {
+  o = o || {};
+  const q = String(o.q || "").slice(0, 200).trim(), title = String(o.title || ""), artist = String(o.artist || ""), dur = +o.dur || 0;
+  if (!q) return { ok: false, error: "notfound" };
+  const key = ytKey(); if (!key) return { ok: false, error: "nokey" };
+  const ck = normTxt(q) + "|" + Math.round(dur / 5);
+  const hit = ytCacheGet(ck); if (hit && hit.id) return Object.assign({ ok: true, cached: true }, hit);
+  const sr = await getJson("https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=8&q=" + encodeURIComponent(q) + "&key=" + encodeURIComponent(key));
+  if (sr.status !== 200) return { ok: false, error: ytErrCode(sr) };
+  const items = ((sr.json && sr.json.items) || []).filter((i) => i.id && /^[A-Za-z0-9_-]{11}$/.test(i.id.videoId || ""));
+  if (!items.length) return { ok: false, error: "notfound" };
+  const durs = {};
+  try {
+    const vr = await getJson("https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=" + items.map((i) => i.id.videoId).join(",") + "&key=" + encodeURIComponent(key));
+    ((vr.json && vr.json.items) || []).forEach((v) => { durs[v.id] = isoDur(v.contentDetails && v.contentDetails.duration); });
+  } catch (_) {}
+  const nt = normTxt(title), na = normTxt(artist);
+  let best = null;
+  items.forEach((it, i) => {
+    const sn = it.snippet || {}, vt = normTxt(unEnt(sn.title)), ch = normTxt(unEnt(sn.channelTitle));
+    let s = 3 - i * 0.4;
+    if (/ topic$/.test(ch)) s += 3;                       // áudio oficial gerado pelo YouTube
+    if (/vevo/.test(ch)) s += 2;
+    if (na && ch && (ch.indexOf(na) >= 0 || na.indexOf(ch) >= 0)) s += 2;
+    if (nt && vt.indexOf(nt) >= 0) s += 2;
+    if (/\b(official|oficial)\b/.test(vt)) s += 1;
+    YT_BAD.forEach((w) => { const re = new RegExp("\\b" + w + "\\b"); if (re.test(vt) && !re.test(nt)) s -= 4; });
+    const d = durs[it.id.videoId];
+    if (dur && d) { const df = Math.abs(d - dur); s += df <= 5 ? 3 : df <= 15 ? 1.5 : df > 60 ? -3 : 0; }
+    if (!best || s > best.s) best = { s, id: it.id.videoId, title: unEnt(sn.title), channel: unEnt(sn.channelTitle) };
+  });
+  const res = { id: best.id, title: best.title, channel: best.channel };
+  ytCachePut(ck, res);
+  return Object.assign({ ok: true }, res);
+}
+async function ytTestKey(k) {
+  const key = String(k || "").trim() || ytKey(); if (!key) return { ok: false, error: "nokey" };
+  try {
+    const r = await getJson("https://www.googleapis.com/youtube/v3/videos?part=id&id=dQw4w9WgXcQ&key=" + encodeURIComponent(key)); // gasta 1 de cota
+    return r.status === 200 ? { ok: true } : { ok: false, error: ytErrCode(r) };
+  } catch (e) { return { ok: false, error: "net" }; }
+}
+
 // ---------- servidor de sinalização embutido (tipo Radmin) ----------
 function startPeerServer(port) {
   port = Number(port) || 9000;
@@ -514,6 +620,10 @@ ipcMain.handle("lan:start", (_e, o) => lanStart(o));
 ipcMain.handle("lan:stop", () => lanStop());
 ipcMain.handle("lan:elevate", (_e, r) => relaunchElevated(r));
 ipcMain.on("lan:out", (_e, buf) => { try { lanWrite(buf); } catch (_) {} });
+ipcMain.handle("music:resolve", (_e, url) => deezerResolve(url).catch((e) => ({ ok: false, error: "Não consegui falar com o Deezer agora." })));
+ipcMain.handle("music:search", (_e, o) => ytSearch(o).catch(() => ({ ok: false, error: "net" })));
+ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), app: !!String(appKeys().ytKey || "").trim() }));
+ipcMain.handle("music:testKey", (_e, k) => ytTestKey(k));
 ipcMain.handle("pcaudio:available", () => pcAvailable());
 ipcMain.handle("pcaudio:list", () => pcList());
 ipcMain.handle("pcaudio:start", (_e, o) => pcStart(o));
@@ -524,7 +634,8 @@ ipcMain.on("share:opts", (_e, o) => {
 });
 ipcMain.handle("yt:title", (_e, id) => new Promise((resolve) => {
   try {
-    https.get("https://www.youtube.com/oembed?format=json&url=https://youtu.be/" + encodeURIComponent(String(id)), { headers: { "User-Agent": "Tatao" } }, (r) => {
+    const target = /^https:\/\/(www\.)?youtube\.com\//.test(String(id)) ? String(id) : "https://youtu.be/" + String(id);
+    https.get("https://www.youtube.com/oembed?format=json&url=" + encodeURIComponent(target), { headers: { "User-Agent": "Tatao" } }, (r) => {
       if (r.statusCode !== 200) { r.resume(); resolve(""); return; }
       let d = ""; r.on("data", (c) => d += c); r.on("end", () => { try { resolve((JSON.parse(d).title) || ""); } catch (_) { resolve(""); } });
     }).on("error", () => resolve(""));

@@ -79,6 +79,18 @@ jobs:
           if (Test-Path cap-out.bin) { Write-Host ("bytes capturados: " + (Get-Item cap-out.bin).Length) }
           exit 0
 
+      - name: Chave do YouTube (opcional, do segredo YT_API_KEY)
+        if: steps.check.outputs.skip == 'false'
+        shell: pwsh
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: |
+          if ($env:YT_API_KEY) {
+            New-Item -ItemType Directory -Force vendor | Out-Null
+            @{ ytKey = $env:YT_API_KEY } | ConvertTo-Json | Set-Content -Encoding utf8 vendor/keys.json
+            Write-Host "chave do YouTube incluída no app"
+          } else { Write-Host "sem segredo YT_API_KEY: cada anfitrião coloca a chave nas Configurações" }
+
       - name: Compilar o app
         if: steps.check.outputs.skip == 'false'
         run: node build.js

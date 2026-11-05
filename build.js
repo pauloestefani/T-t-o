@@ -41,6 +41,8 @@ for (const f of ["wintun.dll", "wintun-LICENSE.txt", "tatao-audio.exe"]) {
   const p = path.join(ROOT, "vendor", f);
   if (fs.existsSync(p)) extra.push(p); else console.log("aviso: vendor/" + f + " não encontrado (a rede LAN ou o áudio do PC não vão funcionar neste build)");
 }
+// chave do YouTube que o GitHub coloca no build (segredo YT_API_KEY); sem ela, cada um pode pôr a sua nas Configurações
+if (fs.existsSync(path.join(ROOT, "vendor", "keys.json"))) extra.push(path.join(ROOT, "vendor", "keys.json"));
 
 // 5) empacota Windows x64
 (async () => {

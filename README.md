@@ -23,6 +23,12 @@ O `wintun.dll` não fica no repositório: o build do GitHub Actions baixa a vers
 ## Áudio do PC (Spotify ou qualquer app)
 No painel **Música**, escolha o app (Spotify, navegador…) ou "Todo o som do PC" e clique em **Compartilhar áudio**. Os amigos ouvem em estéreo, com volume próprio. O `tatao-audio.exe` (código em `native/tatao-audio.cpp`, compilado pelo GitHub Actions) usa a captura por processo do Windows 10 2004+/11, então o som do próprio Tátão (as vozes da sala) nunca entra — isso também vale pro som da transmissão de tela.
 
+## Música: YouTube e Deezer
+Cole no painel **Música** um link de música ou playlist do **YouTube** (inclusive YouTube Music) ou do **Deezer**. Tudo toca no player oficial do YouTube, visível e sincronizado pra sala.
+- Playlist do YouTube: o próprio player oficial abre a lista (sem chave).
+- Deezer: a API pública do Deezer dá os nomes; cada música é procurada no YouTube só quando vai tocar (e a próxima). Isso usa a **YouTube Data API v3** e precisa de uma chave grátis (≈100 buscas/dia). Coloque em Configurações → Música, ou crie o segredo `YT_API_KEY` no GitHub (Settings → Secrets and variables → Actions) pra ela já vir no app.
+- Spotify: não é convertido, porque a política de desenvolvedores do Spotify proíbe tocar o catálogo dele por outro serviço. Use "Áudio do seu PC".
+
 ## Auto-update
 O app lê `resources/update.json` (campo `repo`) e, ao abrir, checa o último **Release** deste GitHub. Se a tag for maior que a versão instalada, baixa o `.zip` anexado, troca os arquivos e reinicia. Veja `COMO-ATUALIZAR.txt`.
 
