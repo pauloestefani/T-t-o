@@ -156,6 +156,28 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
 .lanstate{display:flex;gap:12px;align-items:center;padding:14px;background:var(--field);border:1px solid var(--fline);border-radius:12px;margin-bottom:12px}
 .ldot{width:12px;height:12px;border-radius:50%;background:var(--muted);flex:none}
 .lanstate.on .ldot{background:var(--online);box-shadow:0 0 0 4px rgba(78,213,166,.18)}.lanstate.wait .ldot{background:var(--warn)}
+.dleft{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 190px}
+#computers .device{flex-wrap:wrap;row-gap:10px}
+#computers .device .dright{max-width:100%;margin-left:auto;flex:0 1 auto;min-width:0}
+.dtxt .ipl{display:block;font-family:var(--mono)}
+.dtxt .stl{display:block;font-family:Inter,"Segoe UI",Arial,sans-serif;margin-top:2px}
+.dtxt{min-width:0}
+.sdot{width:10px;height:10px;border-radius:50%;flex:none;background:#56637a}
+.sdot.on{background:var(--online);box-shadow:0 0 0 3px rgba(78,213,166,.16)}
+.sdot.wait{background:var(--warn);animation:sdpulse 1.2s ease-in-out infinite}
+@keyframes sdpulse{50%{opacity:.35}}
+.device.off .dtxt{opacity:.6}
+.device .forget{background:transparent;color:var(--muted);padding:2px 7px;font-size:13px}
+.device .forget:hover{color:var(--bad)}
+#computers .ping{flex:none;align-self:flex-start;margin-top:2px}
+.ping{display:inline-flex;align-items:center;gap:7px;font:600 12px var(--mono);padding:5px 10px;border-radius:99px;background:#1b2639;color:var(--muted);white-space:nowrap}
+.ping .bars{display:inline-flex;align-items:flex-end;gap:2px;height:12px}
+.ping .bars i{width:3px;border-radius:1px;background:#3a475e}
+.ping .bars i:nth-child(1){height:4px}.ping .bars i:nth-child(2){height:7px}.ping .bars i:nth-child(3){height:10px}.ping .bars i:nth-child(4){height:13px}
+.ping.q1{color:#4ed5a6}.ping.q2{color:#a3d95b}.ping.q3{color:#e8b04b}.ping.q4{color:#ef7186}
+.ping.q1 .bars i,.ping.q2 .bars i:nth-child(-n+3),.ping.q3 .bars i:nth-child(-n+2),.ping.q4 .bars i:nth-child(1){background:currentColor}
+.plegend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:12px;color:var(--muted)}
+.plegend span{display:inline-flex;align-items:center;gap:6px}.plegend i{width:9px;height:9px;border-radius:50%;display:inline-block}
 .probe{font-size:12px;white-space:nowrap}.probe.ok{color:var(--online)}.probe.bad{color:var(--bad)}.probe.wait{color:var(--warn)}
 .netline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0;font-size:14px}
 .netline code{font-family:var(--mono);background:var(--field);border:1px solid var(--fline);border-radius:7px;padding:4px 8px}
@@ -356,8 +378,9 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
         <div class="panel">
           <h2>Computadores <span class="pill gray" id="pcCount">0</span></h2>
           <div id="computers"></div>
+          <div class="plegend" id="pingLegend"><span><i style="background:#4ed5a6"></i>até 40 ms · ótimo</span><span><i style="background:#a3d95b"></i>até 80 ms · bom</span><span><i style="background:#e8b04b"></i>até 150 ms · médio</span><span><i style="background:#ef7186"></i>acima · ruim</span></div>
           <div class="controls"><button class="btn small" id="testAll">Testar conexão com todos</button></div>
-          <div class="note" style="margin-top:14px">O teste manda um sinal pela rede LAN do Tátão até o PC do amigo. Se der "Sem resposta", confira se ele também ligou a rede e se o Windows liberou o Tátão no firewall.</div>
+          <div class="note" style="margin-top:14px">O ping é o tempo de ida e volta até o PC do amigo, medido o tempo todo pela conexão da sala. O "Testar" manda um sinal pela rede LAN do Tátão. Se der "Sem resposta", confira se ele também ligou a rede e se o Windows liberou o Tátão no firewall.</div>
         </div>
       </div>
     </section>
@@ -422,7 +445,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.10.0";
+  var APP_VERSION="1.11.0";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -444,7 +467,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   // ---------- configurações (salvas em disco no app) ----------
   var DEF={name:"",room:"",autojoin:false,host:"",port:"",hostServer:false,serverPort:"9000",
     inDev:"default",outDev:"default",inVol:100,outVol:80,micDisabled:false,ns:true,ec:true,agc:true,
-    quality:"1080p",fps:"60",shareType:"screen",shareAudio:true,lanAuto:false,lanMap:{},musicVol:80,pcSrcExe:""};
+    quality:"1080p",fps:"60",shareType:"screen",shareAudio:true,lanAuto:false,lanMap:{},lanSeen:{},musicVol:80,pcSrcExe:""};
   var cfg={};
   function loadSettings(){
     if(isApp&&api.getSettings)return api.getSettings().then(function(s){return s||{};}).catch(function(){return{};});
@@ -726,6 +749,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
       for(var a in nm){if(!prevRoster[a]&&a!==myId){sysMsg(nm[a].name+" entrou");playSnd("entrar");}}
       for(var b in prevRoster){if(!nm[b]&&b!==myId){sysMsg(prevRoster[b].name+" saiu");playSnd("sair");delete probeRes[b];}}
     }
+    rememberSeen(nm);
     members=nm;prevRoster={};for(var c in members)prevRoster[c]={name:members[c].name};
     rosterReady=true;renderPeople();renderComputers();syncMesh();lanAfterRoster();musicAfterRoster();
   }
@@ -759,7 +783,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     if(audioCalls[pid]){try{audioCalls[pid].close();}catch(_){}delete audioCalls[pid];}
     if(screenOut[pid]){try{screenOut[pid].close();}catch(_){}delete screenOut[pid];}
     if(musicOut[pid]){try{musicOut[pid].close();}catch(_){}delete musicOut[pid];}
-    removeRemoteAudio(pid);removeRemoteScreen(pid);removeRemoteMusic(pid);
+    removeRemoteAudio(pid);removeRemoteScreen(pid);removeRemoteMusic(pid);delete pingRes[pid];
     if(members[pid]){delete members[pid];renderPeople();renderComputers();}
   }
   function addRemoteAudio(pid,stream){
@@ -925,7 +949,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
     sysMsg("Você entrou na sala "+roomCode+".");
     if(ovHost&&serverIps&&serverIps.length)sysMsg("Servidor rodando neste PC. Os amigos colocam em Configurações → Servidor de conexão: host "+serverIps.join(" ou ")+", porta "+ovPort+".");
     if(isApp&&api.lanListen)api.lanListen().catch(function(){});
-    renderComputers();lanUI();loadYT();renderPcListen();if(pcAvail)pcRefreshList();
+    renderComputers();lanUI();loadYT();renderPcListen();if(pcAvail)pcRefreshList();startPings();
   }
   function fatal(e){
     var msg=(e&&e.message)||String(e);
@@ -934,7 +958,7 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
   }
   function cleanup(){
     if(lanActive&&api.lanStop){try{api.lanStop();}catch(_){}}
-    stopSharing();stopPcShare();
+    stopSharing();stopPcShare();stopPings();
     for(var rm in remoteMusic)removeRemoteMusic(rm);
     if(rawMic)rawMic.getTracks().forEach(function(t){try{t.stop();}catch(_){}});
     for(var id in remoteAudioEls)removeRemoteAudio(id);
@@ -1316,25 +1340,126 @@ input:focus,select:focus{border-color:var(--primary);outline:none}
       row.appendChild(left);row.appendChild(right);box.appendChild(row);
     });
   }
+  // ---------- quem está ligado + ping de cada um (medido pela conexão direta da sala) ----------
+  var pingRes={},pingEls={},pingTimer=null;
+  function seenBook(){var all=cfg.lanSeen||(cfg.lanSeen={});return all[roomCode]||(all[roomCode]={});}
+  function rememberSeen(nm){
+    if(!roomCode)return;
+    var book=seenBook(),now=Date.now(),changed=false;
+    for(var k in nm){if(k===myId)continue;var s=nm[k];if(!s||!s.name)continue;book[s.name]={vip:s.vip||(book[s.name]&&book[s.name].vip)||null,last:now};changed=true;}
+    for(var b in prevRoster){if(!nm[b]&&b!==myId&&prevRoster[b].name&&book[prevRoster[b].name]){book[prevRoster[b].name].last=now;changed=true;}}
+    // guarda no máximo 30 e esquece quem sumiu há mais de 30 dias
+    var names=Object.keys(book).sort(function(a,c){return book[c].last-book[a].last;});
+    names.forEach(function(n,i){if(i>=30||now-book[n].last>30*864e5){delete book[n];changed=true;}});
+    if(changed)saveSettings();
+  }
+  function ago(ts){
+    var s=Math.max(0,(Date.now()-ts)/1000);
+    if(s<90)return "agora há pouco";if(s<3600)return "há "+Math.round(s/60)+" min";
+    if(s<86400)return "há "+Math.round(s/3600)+" h";var d=Math.round(s/86400);return "há "+d+(d===1?" dia":" dias");
+  }
+  function pingClass(ms){return ms<=40?"q1":ms<=80?"q2":ms<=150?"q3":"q4";}
+  function pingWord(ms){return ms<=40?"ótimo":ms<=80?"bom":ms<=150?"médio":"ruim";}
+  function connFor(pid){
+    var list=[audioCalls[pid],lanConns[pid],musicOut[pid],dataConns[pid]];
+    for(var i=0;i<list.length;i++){var c=list[i];if(c&&c.peerConnection&&c.peerConnection.connectionState!=="closed")return c.peerConnection;}
+    return null;
+  }
+  function measurePing(pid){
+    var pc=connFor(pid);if(!pc||!pc.getStats)return Promise.resolve(null);
+    return pc.getStats().then(function(st){
+      var pair=null,loc={},rem={};
+      st.forEach(function(r){
+        if(r.type==="local-candidate")loc[r.id]=r;else if(r.type==="remote-candidate")rem[r.id]=r;
+        else if(r.type==="transport"&&r.selectedCandidatePairId&&!pair)pair=st.get(r.selectedCandidatePairId)||null;
+      });
+      if(!pair)st.forEach(function(r){if(r.type==="candidate-pair"&&r.state==="succeeded"&&(r.nominated||r.selected)&&(!pair||(r.bytesReceived||0)>(pair.bytesReceived||0)))pair=r;});
+      if(!pair)return null;
+      var rtt=pair.currentRoundTripTime;
+      if(rtt==null&&pair.responsesReceived)rtt=pair.totalRoundTripTime/pair.responsesReceived;
+      if(rtt==null)return null;
+      var l=loc[pair.localCandidateId],r=rem[pair.remoteCandidateId];
+      return{ms:Math.max(1,Math.round(rtt*1000)),relay:!!((l&&l.candidateType==="relay")||(r&&r.candidateType==="relay"))};
+    }).catch(function(){return null;});
+  }
+  function measurePings(){
+    if(!inRoom)return;
+    Object.keys(members).forEach(function(pid){
+      if(pid===myId)return;
+      measurePing(pid).then(function(v){
+        var o=pingRes[pid]||(pingRes[pid]={hist:[],since:Date.now()});
+        if(v){o.ms=v.ms;o.relay=v.relay;o.at=Date.now();o.hist.push(v.ms);if(o.hist.length>15)o.hist.shift();}
+        updatePing(pid);
+      });
+    });
+  }
+  function startPings(){if(!pingTimer){pingTimer=setInterval(measurePings,2000);setTimeout(measurePings,600);}}
+  function stopPings(){if(pingTimer){clearInterval(pingTimer);pingTimer=null;}pingRes={};}
+  function updatePing(pid){
+    var el=pingEls[pid];if(!el)return;
+    var o=pingRes[pid],fresh=o&&o.at&&Date.now()-o.at<9000;
+    var chip=el.chip;chip.className="ping";
+    if(fresh){
+      chip.classList.add(pingClass(o.ms));chip.lastChild.textContent=o.ms+" ms";
+      var avg=Math.round(o.hist.reduce(function(a,b){return a+b;},0)/o.hist.length),mn=Math.min.apply(null,o.hist),mx=Math.max.apply(null,o.hist);
+      chip.title="Ping "+pingWord(o.ms)+" · média "+avg+" ms (de "+mn+" a "+mx+" ms) nos últimos "+o.hist.length*2+" s";
+      el.dot.className="sdot on";el.state.textContent="Ligado · "+(o.relay?"via retransmissão":"conexão direta");
+    }else{
+      var waiting=!o||Date.now()-(o.since||0)<15000;
+      chip.lastChild.textContent=waiting?"…":"—";chip.title=waiting?"Medindo…":"Sem conexão direta com este PC agora";
+      el.dot.className="sdot "+(waiting?"wait":"on");el.state.textContent=waiting?"Ligado · conectando…":"Ligado · sem conexão direta";
+    }
+  }
   function renderComputers(){
-    var box=$("computers");box.innerHTML="";
-    if(!inRoom){$("pcCount").textContent="0";box.innerHTML='<div class="muted">Entre numa sala pra ver os PCs dos seus amigos.</div>';return;}
-    var ids=Object.keys(members);$("pcCount").textContent=ids.length;
+    var box=$("computers");box.innerHTML="";pingEls={};
+    if(!inRoom){$("pcCount").textContent="0";$("pingLegend").hidden=true;box.innerHTML='<div class="muted">Entre numa sala pra ver os PCs dos seus amigos.</div>';return;}
+    var ids=Object.keys(members);
     ids.sort(function(a,b){if(a===myId)return -1;if(b===myId)return 1;return(members[a].name||"").localeCompare(members[b].name||"");});
+    var online={};ids.forEach(function(id){online[members[id].name]=1;});
+    var book=seenBook(),offNames=Object.keys(book).filter(function(n){return !online[n]&&n!==myName;}).sort(function(a,b){return book[b].last-book[a].last;});
+    $("pcCount").textContent=offNames.length?(ids.length+" de "+(ids.length+offNames.length)+" ligados"):(ids.length+(ids.length===1?" ligado":" ligados"));
+    $("pingLegend").hidden=ids.length<2;
     ids.forEach(function(id){
       var m=members[id],me=id===myId,on=me?lanActive:!!m.lanOn;
       var row=document.createElement("div");row.className="device";
-      var left=document.createElement("div");left.className="dname";left.textContent="▣ "+(me?"Meu PC":"PC "+(m.name||"Jogador"));
-      var sm=document.createElement("small");sm.textContent=m.vip?m.vip:"sem IP ainda";left.appendChild(sm);
-      var right=document.createElement("div");right.className="dright";
-      var p=document.createElement("span");p.className="pill"+(on?"":" gray");p.textContent=me?(on?"Este PC · ligada":"Este PC"):(on?"LAN ligada":"LAN desligada");right.appendChild(p);
+      var left=document.createElement("div");left.className="dleft";
+      var dot=document.createElement("span");dot.className="sdot on";dot.title="PC ligado e na sala";
+      var txt=document.createElement("div");txt.className="dtxt";
+      var nm=document.createElement("div");nm.className="dname";nm.textContent=me?"Meu PC":"PC "+(m.name||"Jogador");
+      var sm=document.createElement("small");var ip=document.createElement("span");ip.className="ipl";ip.textContent=m.vip||"sem IP ainda";
+      var stt=document.createElement("span");stt.className="stl";stt.textContent="Ligado"+(me?" · este PC":"");sm.appendChild(ip);sm.appendChild(stt);
+      txt.appendChild(nm);txt.appendChild(sm);left.appendChild(dot);left.appendChild(txt);
+      var right=document.createElement("div"),chip=null;right.className="dright";
+      if(!me){
+        chip=document.createElement("span");chip.className="ping";
+        var bars=document.createElement("span");bars.className="bars";for(var bi=0;bi<4;bi++)bars.appendChild(document.createElement("i"));
+        chip.appendChild(bars);chip.appendChild(document.createTextNode("…"));
+        pingEls[id]={chip:chip,dot:dot,state:stt};
+      }
+      var p=document.createElement("span");p.className="pill"+(on?"":" gray");p.textContent=me?(on?"LAN ligada":"LAN desligada"):(on?"LAN ligada":"LAN desligada");right.appendChild(p);
       if(!me){
         var r=probeRes[id];
         if(r){var res=document.createElement("span");res.className="probe "+(r.state==="ok"?"ok":r.state==="testing"?"wait":"bad");
-          res.textContent=r.state==="testing"?"Testando…":r.state==="ok"?("Conectado"+(r.ms!=null?" · "+r.ms+" ms":"")):"Sem resposta";right.appendChild(res);}
+          res.textContent=r.state==="testing"?"Testando…":r.state==="ok"?("Teste ok"+(r.ms!=null?" · "+r.ms+" ms":"")):"Sem resposta";right.appendChild(res);}
         if(m.vip){var cp=document.createElement("button");cp.className="btn small";cp.textContent="Copiar IP";cp.addEventListener("click",function(){copyText(m.vip,cp);});right.appendChild(cp);}
         if(isApp&&api.lanProbe&&lanActive&&on&&m.vip){var tb=document.createElement("button");tb.className="btn small";tb.textContent="Testar";tb.addEventListener("click",function(){testPc(id);});right.appendChild(tb);}
       }
+      row.appendChild(left);if(chip)row.appendChild(chip);row.appendChild(right);box.appendChild(row);
+      if(!me)updatePing(id);
+    });
+    // quem já esteve na sala mas está com o PC desligado (ou fora do Tátão)
+    offNames.forEach(function(n){
+      var e=book[n],row=document.createElement("div");row.className="device off";
+      var left=document.createElement("div");left.className="dleft";
+      var dot=document.createElement("span");dot.className="sdot";dot.title="Desligado";
+      var txt=document.createElement("div");txt.className="dtxt";
+      var nm=document.createElement("div");nm.className="dname";nm.textContent="PC "+n;
+      var sm=document.createElement("small");var ip2=document.createElement("span");ip2.className="ipl";ip2.textContent=e.vip||"sem IP";var st2=document.createElement("span");st2.className="stl";st2.textContent="Desligado · visto "+ago(e.last);sm.appendChild(ip2);sm.appendChild(st2);
+      txt.appendChild(nm);txt.appendChild(sm);left.appendChild(dot);left.appendChild(txt);
+      var right=document.createElement("div");right.className="dright";
+      var p=document.createElement("span");p.className="pill gray";p.textContent="Desligado";right.appendChild(p);
+      var fx=document.createElement("button");fx.className="forget";fx.textContent="✕";fx.title="Tirar da lista";
+      fx.addEventListener("click",function(){delete seenBook()[n];saveSettings();renderComputers();});right.appendChild(fx);
       row.appendChild(left);row.appendChild(right);box.appendChild(row);
     });
   }
