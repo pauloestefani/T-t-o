@@ -1,7 +1,7 @@
 {
   "name": "tatao",
   "productName": "Tátão",
-  "version": "1.7.2",
+  "version": "1.8.0",
   "description": "Voz, tela e chat P2P para jogar em LAN",
   "main": "main.js",
   "author": "Sala LAN",

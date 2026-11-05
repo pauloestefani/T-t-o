@@ -3,15 +3,20 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: true,
-  // seletor de tela/janela
+  // transmissão de tela
   onPickSource: (cb) => ipcRenderer.on("pick-source", (_e, sources) => cb(sources)),
   pickSource: (id) => ipcRenderer.send("source-picked", id),
+  setShareOptions: (o) => ipcRenderer.send("share:opts", o),
   // memória de configs
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (o) => ipcRenderer.invoke("settings:set", o),
   // servidor embutido
   startServer: (port) => ipcRenderer.invoke("server:start", port),
   stopServer: () => ipcRenderer.invoke("server:stop"),
+  // rede LAN
+  lanInfo: () => ipcRenderer.invoke("lan:info"),
+  lanListen: () => ipcRenderer.invoke("lan:listen"),
+  lanProbe: (ip) => ipcRenderer.invoke("lan:probe", ip),
   // auto-update
   onUpdateAvailable: (cb) => ipcRenderer.on("update-available", (_e, d) => cb(d)),
   onUpdateProgress: (cb) => ipcRenderer.on("update-progress", (_e, p) => cb(p)),

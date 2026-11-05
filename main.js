@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const https = require("https");
+const net = require("net");
 const { spawn } = require("child_process");
 
 // permite tocar música (YouTube) sem exigir clique a cada vez — essencial pra sincronizar entre todos
@@ -22,6 +23,68 @@ function lanIps() {
   const out = []; const ifs = os.networkInterfaces();
   for (const k in ifs) for (const a of ifs[k]) if (a.family === "IPv4" && !a.internal) out.push(a.address);
   return out;
+}
+
+// ---------- Rede LAN: detectar redes virtuais (Radmin, ZeroTier, Tailscale, Hamachi) ----------
+function classifyNet(name, ip) {
+  const n = String(name).toLowerCase();
+  const p = ip.split(".").map(Number);
+  if (n.includes("radmin") || p[0] === 26) return "radmin";
+  if (n.includes("zerotier")) return "zerotier";
+  if (n.includes("tailscale") || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)) return "tailscale";
+  if (n.includes("hamachi") || p[0] === 25) return "hamachi";
+  if (n.includes("wireguard") || n.includes("wintun")) return "wireguard";
+  return "local";
+}
+function lanInfo() {
+  const out = []; const ifs = os.networkInterfaces();
+  for (const name in ifs) for (const a of ifs[name]) {
+    if (a.family !== "IPv4" || a.internal) continue;
+    if (/^169\.254\./.test(a.address)) continue; // endereço automático sem rede
+    out.push({ name: name, ip: a.address, kind: classifyNet(name, a.address) });
+  }
+  // redes virtuais primeiro
+  out.sort((x, y) => (x.kind === "local") - (y.kind === "local"));
+  return out;
+}
+// "sonda" do Tátão: cada app escuta numa porta; o teste de conexão tenta abrir essa porta no PC do amigo pela rede virtual
+const PROBE_PORT = 47999;
+let probeSrv = null;
+function startProbe() {
+  if (probeSrv) return { ok: true };
+  try {
+    probeSrv = net.createServer((s) => { try { s.end("TATAO " + app.getVersion() + "\n"); } catch (_) {} });
+    probeSrv.on("error", () => { probeSrv = null; });
+    probeSrv.listen(PROBE_PORT, "0.0.0.0");
+    return { ok: true };
+  } catch (_) { probeSrv = null; return { ok: false }; }
+}
+function pingIp(ip) {
+  return new Promise((res) => {
+    const args = process.platform === "win32" ? ["-n", "1", "-w", "1500", ip] : ["-c", "1", "-W", "2", ip];
+    let out = "", p;
+    try { p = spawn("ping", args, { windowsHide: true }); } catch (_) { res({ ok: false, method: "ping" }); return; }
+    const timer = setTimeout(() => { try { p.kill(); } catch (_) {} }, 4000);
+    p.stdout.on("data", (d) => out += d);
+    p.on("error", () => { clearTimeout(timer); res({ ok: false, method: "ping" }); });
+    p.on("close", () => {
+      clearTimeout(timer);
+      const m = out.match(/[=<]\s*(\d+)\s*ms/i);
+      res({ ok: /ttl=/i.test(out), ms: m ? parseInt(m[1], 10) : null, method: "ping" });
+    });
+  });
+}
+function lanProbe(ip) {
+  ip = String(ip || "");
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return Promise.resolve({ ok: false, error: "ip inválido" });
+  return new Promise((res) => {
+    const t0 = Date.now(); let done = false;
+    const s = net.connect({ host: ip, port: PROBE_PORT });
+    const fin = (r) => { if (done) return; done = true; try { s.destroy(); } catch (_) {} res(r); };
+    s.setTimeout(2500, () => fin(null));
+    s.on("data", (d) => { if (String(d).indexOf("TATAO") === 0) fin({ ok: true, ms: Date.now() - t0, method: "tatao" }); });
+    s.on("error", () => fin(null));
+  }).then((r) => r || pingIp(ip));
 }
 
 // ---------- servidor de sinalização embutido (tipo Radmin) ----------
@@ -172,26 +235,34 @@ function applyUpdate(newDir) {
 }
 
 // ---------- janela ----------
+let shareOpts = { type: "all", audio: true }; // definido pela tela antes de cada transmissão
 function createWindow() {
   win = new BrowserWindow({
-    width: 1200, height: 800, minWidth: 720, minHeight: 520,
-    backgroundColor: "#1a1b1e", autoHideMenuBar: true, title: "Tátão",
+    width: 1280, height: 820, minWidth: 820, minHeight: 560,
+    backgroundColor: "#0b111d", autoHideMenuBar: true, title: "Tátão",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
   win.loadFile(path.join(__dirname, "sala-lan.html"));
+  // links externos abrem no navegador, não numa janela do app
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
 
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => callback(true));
+  session.defaultSession.setPermissionCheckHandler(() => true); // nomes dos microfones/fones e troca de saída de áudio
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: false })
+    const types = shareOpts.type === "screen" ? ["screen"] : shareOpts.type === "window" ? ["window"] : ["screen", "window"];
+    const give = (src) => {
+      if (!src) { try { callback(); } catch (_) {} return; }
+      const opts = { video: src };
+      if (shareOpts.audio && process.platform === "win32") opts.audio = "loopback";
+      try { callback(opts); } catch (_) { try { callback({ video: src }); } catch (__) {} }
+    };
+    desktopCapturer.getSources({ types, thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: false })
       .then((sources) => {
+        if (shareOpts.type === "screen" && sources.length === 1) { give(sources[0]); return; } // um monitor só: vai direto
         send("pick-source", sources.map((s) => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL() })));
-        ipcMain.once("source-picked", (_e, id) => {
-          if (!id) { try { callback(); } catch (_) {} return; }
-          const chosen = sources.find((s) => s.id === id) || sources[0];
-          try { callback({ video: chosen, audio: "loopback" }); } catch (_) { try { callback({ video: chosen }); } catch (__) {} }
-        });
-      }).catch(() => { try { callback(); } catch (_) {} });
+        ipcMain.once("source-picked", (_e, id) => { give(id ? (sources.find((s) => s.id === id) || sources[0]) : null); });
+      }).catch(() => give(null));
   });
 
   win.webContents.once("did-finish-load", () => { setTimeout(checkUpdate, 4000); });
@@ -206,7 +277,14 @@ ipcMain.handle("server:start", (_e, port) => startPeerServer(port));
 ipcMain.handle("server:stop", () => stopPeerServer());
 ipcMain.handle("update:check", () => checkUpdate(true));
 ipcMain.handle("update:apply", (_e, dir) => applyUpdate(dir));
-ipcMain.handle("open:external", (_e, url) => { try { shell.openExternal(url); } catch (_) {} });
+ipcMain.handle("open:external", (_e, url) => { try { if (/^https?:\/\//.test(String(url))) shell.openExternal(url); } catch (_) {} });
+ipcMain.handle("lan:info", () => lanInfo());
+ipcMain.handle("lan:listen", () => startProbe());
+ipcMain.handle("lan:probe", (_e, ip) => lanProbe(ip));
+ipcMain.on("share:opts", (_e, o) => {
+  o = o || {};
+  shareOpts = { type: ["screen", "window", "all"].includes(o.type) ? o.type : "all", audio: o.audio !== false };
+});
 ipcMain.handle("yt:title", (_e, id) => new Promise((resolve) => {
   try {
     https.get("https://www.youtube.com/oembed?format=json&url=https://youtu.be/" + encodeURIComponent(String(id)), { headers: { "User-Agent": "Tatao" } }, (r) => {
@@ -223,5 +301,5 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(createWindow);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-  app.on("before-quit", () => { stopPeerServer(); });
+  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} });
 }
