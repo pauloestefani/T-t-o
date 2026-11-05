@@ -32,7 +32,7 @@ function startPeerServer(port) {
     let settled = false; const done = (r) => { if (!settled) { settled = true; resolve(r); } };
     try {
       const { PeerServer } = require("peer");
-      const srv = PeerServer({ port: port, path: "/", key: "peerjs", proxied: false }, () => {
+      const srv = PeerServer({ port: port, host: "0.0.0.0", path: "/", key: "peerjs", proxied: false }, () => {
         peerServer = srv; peerServerPort = port; done({ ok: true, ips: lanIps(), port: port });
       });
       srv.on("error", (err) => done({ ok: false, error: (err && (err.code || err.message)) || String(err) }));
