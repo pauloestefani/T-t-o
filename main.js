@@ -198,6 +198,56 @@ async function lanStop() {
   return { ok: true };
 }
 // reabre o Tátão como administrador (o Windows pergunta) e volta pra mesma sala com a rede ligada
+// Pede ao Windows pra abrir o Tátão como administrador. Usa a própria janela como dona do aviso,
+// assim ele aparece na frente (pelo PowerShell escondido, o aviso podia ficar só piscando na barra de tarefas).
+let _shellExec = null;
+function shellRunAs(exe, params, owner) {
+  if (!_shellExec) {
+    const koffi = require("koffi");
+    _shellExec = koffi.load("shell32.dll").func("intptr_t __stdcall ShellExecuteW(intptr_t hwnd, const char16_t *op, const char16_t *file, const char16_t *params, const char16_t *dir, int show)");
+  }
+  let hwnd = 0;
+  try { if (owner && !owner.isDestroyed()) { const b = owner.getNativeWindowHandle(); hwnd = b.length >= 8 ? b.readBigInt64LE(0) : b.readInt32LE(0); } } catch (_) {}
+  const r = _shellExec(hwnd, "runas", exe, params || "", path.dirname(exe), 1); // bloqueia até a pessoa responder
+  return Number(r) > 32;
+}
+function elevateNow(resume, owner) {
+  if (process.platform !== "win32") return Promise.resolve({ ok: false });
+  const exe = app.getPath("exe");
+  const params = resume ? "--tatao-resume=" + Buffer.from(JSON.stringify(resume)).toString("base64") : "";
+  return lanStop().catch(() => {}).then(() => {
+    let ok = false;
+    try { app.releaseSingleInstanceLock(); } catch (_) {}
+    try { ok = shellRunAs(exe, params, owner || win || splash); }
+    catch (e) { relaunchElevated(resume); return { ok: true, via: "powershell" }; } // sem a biblioteca: jeito antigo
+    if (ok) { setTimeout(() => app.quit(), 200); return { ok: true }; }
+    try { app.requestSingleInstanceLock(); } catch (_) {}
+    return { ok: false, cancelled: true }; // a pessoa disse "Não": continua aberto normal
+  });
+}
+// A mesma marca da opção "Executar este programa como administrador" das propriedades do .exe (só deste usuário).
+const COMPAT_KEY = "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers";
+function readCompatFlags(exe) {
+  try {
+    const out = require("child_process").execFileSync("reg.exe", ["query", COMPAT_KEY, "/v", exe], { windowsHide: true, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const line = out.split(/\r?\n/).find((l) => /\sREG_SZ\s/.test(l));
+    return line ? line.split(/\sREG_SZ\s+/)[1].trim() : "";
+  } catch (_) { return ""; }
+}
+function setRunAsAdminFlag(on) {
+  if (process.platform !== "win32" || !app.isPackaged) return false;
+  const exe = app.getPath("exe"), cur = readCompatFlags(exe);
+  const toks = cur.replace(/^~\s*/, "").split(/\s+/).filter((t) => t && t.toUpperCase() !== "RUNASADMIN");
+  if (on) toks.unshift("RUNASADMIN");
+  const want = toks.length ? "~ " + toks.join(" ") : "";
+  if (want === cur) return true;
+  try {
+    const cp = require("child_process");
+    if (want) cp.execFileSync("reg.exe", ["add", COMPAT_KEY, "/v", exe, "/t", "REG_SZ", "/d", want, "/f"], { windowsHide: true, stdio: "ignore" });
+    else cp.execFileSync("reg.exe", ["delete", COMPAT_KEY, "/v", exe, "/f"], { windowsHide: true, stdio: "ignore" });
+    return true;
+  } catch (_) { return false; }
+}
 function relaunchElevated(resume) {
   if (process.platform !== "win32") return { ok: false };
   const exe = app.getPath("exe").replace(/'/g, "''");
@@ -628,7 +678,7 @@ function setFullMode() {
 }
 
 function createWindow() {
-  createSplash();
+  if (!splash) createSplash();
   win = new BrowserWindow({
     width: LOGIN_W, height: loginH, useContentSize: true, resizable: false, maximizable: false, show: false,
     backgroundColor: ({ creme: "#f4ecdc", noite: "#121722" })[readCfg().theme] || "#20252d", autoHideMenuBar: true, title: "Tátão",
@@ -696,7 +746,9 @@ ipcMain.handle("lan:listen", () => startProbe());
 ipcMain.handle("lan:probe", (_e, ip) => lanProbe(ip));
 ipcMain.handle("lan:start", (_e, o) => lanStart(o));
 ipcMain.handle("lan:stop", () => lanStop());
-ipcMain.handle("lan:elevate", (_e, r) => relaunchElevated(r));
+ipcMain.handle("lan:elevate", (_e, r) => elevateNow(r, win));
+ipcMain.handle("app:setAlwaysAdmin", (_e, on) => ({ ok: setRunAsAdminFlag(!!on), admin: isAdmin() }));
+ipcMain.handle("app:elevate", () => elevateNow(null, win));
 ipcMain.on("lan:out", (_e, buf) => { try { lanWrite(buf); } catch (_) {} });
 ipcMain.handle("music:resolve", (_e, url) => deezerResolve(url).catch((e) => ({ ok: false, error: "Não consegui falar com o Deezer agora." })));
 ipcMain.handle("music:search", (_e, o) => ytSearch(o).catch(() => ({ ok: false, error: "net" })));
@@ -729,8 +781,15 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", () => { if (win && appShown) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(() => {
-    // opção "Sempre abrir como administrador": reabre pedindo permissão do Windows antes de mostrar qualquer janela
-    if (process.platform === "win32" && readCfg().alwaysAdmin && !process.argv.includes("--tatao-noelevate") && !isAdmin()) { relaunchElevated(null); return; }
+    const always = process.platform === "win32" && !!readCfg().alwaysAdmin;
+    if (process.platform === "win32") setRunAsAdminFlag(always); // mantém a marca do Windows igual à opção (e no caminho atual do .exe)
+    if (always && !process.argv.includes("--tatao-noelevate") && !isAdmin()) {
+      createSplash();
+      splash.once("show", () => setTimeout(() => {
+        elevateNow(null, splash).then((r) => { if (!r.ok) createWindow(); });
+      }, 250));
+      return;
+    }
     createWindow();
   });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

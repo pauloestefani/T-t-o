@@ -702,7 +702,8 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
             <label class="check"><input type="checkbox" id="lanAuto"> Ligar a rede LAN automaticamente ao entrar na sala</label>
             <div id="adminBox" hidden>
               <label class="check"><input type="checkbox" id="alwaysAdmin"> Sempre abrir o Tátão como administrador</label>
-              <p class="muted" id="adminState" style="margin:-6px 0 12px 26px"></p>
+              <p class="muted" id="adminState" style="margin:-6px 0 10px 26px"></p>
+              <div class="controls" id="adminNowRow" hidden style="margin:0 0 12px 26px"><button class="btn small" id="adminNow">Reabrir agora como administrador</button></div>
             </div>
             <div class="note">Funciona como o Radmin: cada pessoa da sala que ligar a rede ganha um IP <b>10.77.x.x</b> e todos ficam na mesma LAN. Os pacotes do jogo vão direto de PC pra PC, criptografados, sem servidor no meio. No jogo, crie ou procure a partida em <b>LAN</b>; se ele pedir o IP do anfitrião, use o IP que aparece ao lado do nome dele.</div>
           </div>
@@ -800,7 +801,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.14.2";
+  var APP_VERSION="1.14.3";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -2093,7 +2094,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     if(inRoom&&isApp&&myVip&&!lanActive&&!lanBusy&&(lanWant||(cfg.lanAuto&&!lanTriedAuto))){lanWant=false;lanTriedAuto=true;lanEnable();}
   }
   $("lanToggle").addEventListener("click",function(){if(lanActive)lanDisable();else lanEnable();});
-  $("lanElevate").addEventListener("click",function(){if(api.lanElevate)api.lanElevate({name:myName,room:roomCode,lan:true});});
+  $("lanElevate").addEventListener("click",function(){if(api.lanElevate)api.lanElevate({name:myName,room:roomCode,lan:true}).then(function(r){if(r&&r.cancelled)lanError("Você não deu a permissão no Windows, então a rede LAN não ligou.");}).catch(function(){});});
   $("lanCopyIp").addEventListener("click",function(){if(myVip)copyText(myVip,this);});
   $("lanAuto").addEventListener("change",function(){setCfg("lanAuto",this.checked);});
   // abrir sempre como administrador (só no app para Windows)
@@ -2103,10 +2104,18 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
       if(a===null)return; // não é Windows
       $("adminBox").hidden=false;$("alwaysAdmin").checked=!!cfg.alwaysAdmin;
       $("adminState").textContent=(a?"Agora o Tátão está aberto como administrador. ":"Agora o Tátão está aberto normal. ")+
-        (cfg.alwaysAdmin?"Ele vai pedir a permissão do Windows toda vez que abrir.":"Marque pra ele já abrir com permissão pra rede LAN (o Windows pergunta toda vez).");
+        (cfg.alwaysAdmin?"Ao abrir com dois cliques, o Windows já pergunta se pode abrir como administrador.":"Marque pra ele já abrir com permissão pra rede LAN (o Windows pergunta toda vez).");
+      $("adminNowRow").hidden=!(cfg.alwaysAdmin&&!a);
     }).catch(function(){});
   }
-  $("alwaysAdmin").addEventListener("change",function(){setCfg("alwaysAdmin",this.checked);adminUI();});
+  $("alwaysAdmin").addEventListener("change",function(){
+    var on=this.checked;setCfg("alwaysAdmin",on);
+    if(api.setAlwaysAdmin)api.setAlwaysAdmin(on).then(function(r){if(r&&!r.ok)$("adminState").textContent="Não consegui gravar a opção no Windows.";else adminUI();}).catch(function(){adminUI();});else adminUI();
+  });
+  $("adminNow").addEventListener("click",function(){
+    if(!api.lanElevate)return;
+    api.lanElevate({name:myName,room:roomCode,lan:lanActive||lanWant}).then(function(r){if(r&&r.cancelled)$("adminState").textContent="Você não deu a permissão no Windows. O Tátão continua aberto normal.";}).catch(function(){});
+  });
   // reaberto como administrador: volta pra mesma sala e liga a rede
   function tryResume(){
     if(!resumePending||!settingsLoaded)return;
