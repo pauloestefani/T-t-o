@@ -195,6 +195,17 @@ html.compact .joinwrap{display:block;padding:0}
 html.compact .join{width:100%;border:0;border-radius:0;min-height:100vh;padding:0;background:var(--t-surface)}
 html.compact #joinInner{padding:24px 22px 22px}
 html.compact #joinSettings{display:inline-grid}
+.prehead,.prenote{display:none}
+html.compact .main{overflow:auto}
+html.compact #tab-settings{padding:20px 22px 22px;background:var(--t-bg);min-height:100vh}
+html.compact #tab-settings .pagehead{display:none}
+html.compact .prehead{display:flex;align-items:center;gap:12px;margin:0 0 8px}
+html.compact .prehead h1{font-size:24px}
+html.compact .prenote{display:block;margin:0 0 16px}
+html.compact #tab-settings .panel:not([data-pre]){display:none}
+html.compact #tab-settings .grid{grid-template-columns:minmax(0,1fr);gap:14px}
+html.compact #tab-settings .grid>div{gap:14px}
+html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 /* ---------- sala ---------- */
 .roomhead{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 18px;min-width:0}
 .roomhead .kicker{display:block;font-size:13px;color:var(--t-muted);margin-bottom:2px}
@@ -407,7 +418,40 @@ html.compact #joinSettings{display:inline-grid}
 .autoCard{display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
 .spin{width:40px;height:40px;border-radius:50%;border:3px solid var(--t-border);border-top-color:var(--t-accent-ink);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}.spin{animation:none}}
+/* ---------- transições ---------- */
+@keyframes sceneR{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes sceneL{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes sceneUp{from{opacity:0;transform:translateY(10px) scale(.992)}to{opacity:1;transform:none}}
+@keyframes popIn{from{opacity:0;transform:translateY(-4px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes dropIn{from{opacity:0;transform:translate(-50%,-10px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes msgIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.scene-r{animation:sceneR .26s cubic-bezier(.2,.8,.2,1) both}
+.scene-l{animation:sceneL .26s cubic-bezier(.2,.8,.2,1) both}
+.scene-up{animation:sceneUp .32s cubic-bezier(.2,.8,.2,1) both}
+.rail{position:relative}
+.nav-ind{position:absolute;left:0;top:0;width:48px;height:40px;border-radius:var(--t-radius-md);background:var(--t-accent);pointer-events:none;opacity:0;transition:transform .32s cubic-bezier(.2,.8,.2,1),opacity .2s,width .32s,height .32s}
+.nav-ind.on{opacity:1}
+.nav-ind.instant{transition:none}
+.nav .navic{position:relative;z-index:1}
+.rail.has-ind .nav.active .navic,.rail.has-ind .nav.active:hover .navic{background:transparent}
+.nav{transition:color .2s}
+.nav .navic .ic{transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+.nav:active .navic .ic{transform:scale(.88)}
+.nav.active .navic .ic{transform:scale(1.04)}
+.btn,.vbtn,.iconbtn,#mPlay,.lanstrip,.pmitem,.theme,.sendbtn,.pmore{transition:background-color .18s,color .18s,border-color .18s,box-shadow .18s,transform .12s,opacity .18s}
+.btn:not(:disabled):active,.vbtn:active,.iconbtn:active,#mPlay:active,.sendbtn:active,.pmore:active{transform:scale(.96)}
+.lanstrip:active{transform:scale(.995)}
+.theme:active{transform:scale(.98)}
+.pmenu:not([hidden]){animation:popIn .16s cubic-bezier(.2,.8,.2,1) both;transform-origin:top right}
+.overlay:not([hidden]){animation:fadeIn .18s ease-out both}
+.overlay:not([hidden]) .ocard,.overlay:not([hidden]) .autoCard{animation:sceneUp .26s cubic-bezier(.2,.8,.2,1) both}
+#selfUpd:not([hidden]){animation:dropIn .26s cubic-bezier(.2,.8,.2,1) both}
+.message{animation:msgIn .2s ease-out both}
+.mmore[open] .pcbox{animation:sceneUp .22s ease-out both}
+.queue:not([hidden]){animation:fadeIn .18s ease-out both}
+.avatar{transition:box-shadow .15s}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
 /* ---------- tamanhos de janela ---------- */
 @media (max-width:1179px){
@@ -525,6 +569,7 @@ html.compact #joinSettings{display:inline-grid}
   </header>
 
   <nav class="rail" aria-label="Seções do app">
+    <span class="nav-ind" id="navInd" aria-hidden="true"></span>
     <button class="nav active" data-tab="room" aria-current="page"><span class="navic"><svg class="ic lg"><use href="#i-chat"/></svg></span>Sala</button>
     <button class="nav" data-tab="lan"><span class="navic"><svg class="ic lg"><use href="#i-lan"/></svg></span>LAN</button>
     <button class="nav" data-tab="settings"><span class="navic"><svg class="ic lg"><use href="#i-sliders"/></svg></span>Ajustes</button>
@@ -676,9 +721,11 @@ html.compact #joinSettings{display:inline-grid}
     <!-- ================= AJUSTES ================= -->
     <section id="tab-settings" class="hidden">
       <div class="pagehead"><h1>Ajustes</h1><span class="lead">Áudio, transmissão, conexão, música e atualizações</span></div>
+      <div class="prehead"><button class="btn small" id="preBack"><svg class="ic sm" style="transform:rotate(90deg)"><use href="#i-chev"/></svg>Voltar</button><h1>Ajustes</h1></div>
+      <p class="prenote muted">Antes de entrar dá pra ajustar o tema e o microfone. O resto fica liberado dentro da sala.</p>
       <div class="grid">
         <div>
-          <div class="panel">
+          <div class="panel" data-pre>
             <h2>Aparência</h2>
             <div class="themes" role="radiogroup" aria-label="Tema de cores">
               <label class="theme"><input type="radio" name="theme" value="grafite"><span class="sw" aria-hidden="true"><i style="background:#20252d"></i><i style="background:#fdf5e5"></i><i style="background:#99f1b6"></i></span><span class="tn">Grafite<svg class="ic sm ok" aria-hidden="true"><use href="#i-check"/></svg></span><span class="td">Escuro, creme e menta</span></label>
@@ -686,7 +733,7 @@ html.compact #joinSettings{display:inline-grid}
               <label class="theme"><input type="radio" name="theme" value="noite"><span class="sw" aria-hidden="true"><i style="background:#121722"></i><i style="background:#f1eee6"></i><i style="background:#8fd0ff"></i></span><span class="tn">Meia-noite<svg class="ic sm ok" aria-hidden="true"><use href="#i-check"/></svg></span><span class="td">Azul profundo e céu</span></label>
             </div>
           </div>
-          <div class="panel">
+          <div class="panel" data-pre>
             <h2><svg class="ic"><use href="#i-mic"/></svg>Entrada</h2>
             <div class="control"><label for="inDev">Microfone</label><select id="inDev"><option value="default">Padrão do sistema</option></select></div>
             <div class="control"><label for="inVol">Volume de entrada: <span id="inVolVal">100</span>%</label><input type="range" class="range" id="inVol" min="0" max="200" value="100"></div>
@@ -702,7 +749,7 @@ html.compact #joinSettings{display:inline-grid}
             <button class="btn" id="testSpeaker">Tocar som de teste</button>
             <div class="note" style="margin-top:14px">A saída escolhida vale para as vozes e os sons do Tátão. O YouTube sai sempre pela saída padrão do Windows. A música que os amigos compartilham do PC sai por aqui.</div>
           </div>
-          <div class="panel">
+          <div class="panel" data-pre>
             <h2>Processamento de áudio</h2>
             <label class="check"><input type="checkbox" id="ns"> Supressão de ruído</label>
             <label class="check"><input type="checkbox" id="ec"> Cancelamento de eco</label>
@@ -749,7 +796,7 @@ html.compact #joinSettings{display:inline-grid}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.14.0";
+  var APP_VERSION="1.14.1";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -821,12 +868,29 @@ html.compact #joinSettings{display:inline-grid}
 
   // ---------- abas ----------
   var curTab="room";
+  var TAB_ORDER={room:0,lan:1,settings:2};
+  function animScene(el,cls){if(!el)return;el.classList.remove("scene-r","scene-l","scene-up");void el.offsetWidth;el.classList.add(cls);
+    el.addEventListener("animationend",function f(ev){if(ev.target!==el)return;el.classList.remove(cls);el.removeEventListener("animationend",f);});}
+  function placeNavInd(instant){
+    var ind=$("navInd"),act=document.querySelector(".nav.active .navic"),rail=document.querySelector(".rail");
+    if(!ind||!act||!rail||!rail.offsetParent){return;}
+    var r=rail.getBoundingClientRect(),a=act.getBoundingClientRect();
+    ind.classList.toggle("instant",!!instant);
+    ind.style.width=a.width+"px";ind.style.height=a.height+"px";
+    ind.style.transform="translate("+(a.left-r.left+rail.scrollLeft)+"px,"+(a.top-r.top+rail.scrollTop)+"px)";
+    ind.classList.add("on");rail.classList.add("has-ind");
+    if(instant)requestAnimationFrame(function(){ind.classList.remove("instant");});
+  }
+  window.addEventListener("resize",function(){placeNavInd(true);});
   function showTab(t){
+    if(!inRoom&&t==="lan")t="room"; // antes de entrar não tem rede LAN
+    var prev=curTab;
     if(t!==curTab)playSnd("trocarJanela");
     curTab=t;var mn=document.querySelector(".main");if(mn)mn.scrollTop=0;
     ["room","lan","settings"].forEach(function(id){$("tab-"+id).classList.toggle("hidden",id!==t);});
+    if(t!==prev)animScene($("tab-"+t),TAB_ORDER[t]>TAB_ORDER[prev]?"scene-r":"scene-l");
     Array.prototype.forEach.call(document.querySelectorAll(".nav"),function(b){var on=b.dataset.tab===t;b.classList.toggle("active",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
-    updateTitle();updateWindowMode();
+    updateTitle();updateWindowMode();placeNavInd(false);
     if(t==="lan")refreshLan();
     if(t==="settings")refreshDevices();
   }
@@ -834,12 +898,16 @@ html.compact #joinSettings{display:inline-grid}
   var winModeSent="",appReadySent=false;
   function updateWindowMode(){
     if(!(isApp&&api.setWindowMode))return;
-    var compact=curTab==="room"&&!inRoom;
+    var compact=!inRoom;
     document.documentElement.classList.toggle("compact",compact);
-    if(compact){var h=Math.ceil($("joinInner").getBoundingClientRect().height);if(h<200)return;var key="login:"+h;if(winModeSent!==key){winModeSent=key;api.setWindowMode({mode:"login",h:h});}}
-    else if(winModeSent!=="full"){winModeSent="full";api.setWindowMode({mode:"full"});}
+    if(compact){
+      var src=curTab==="settings"?$("tab-settings"):$("joinInner");
+      var h=Math.ceil(src.getBoundingClientRect().height);if(h<200)return;
+      var key="login:"+h;if(winModeSent!==key){winModeSent=key;api.setWindowMode({mode:"login",h:h});}
+    }
+    else if(winModeSent!=="full"){winModeSent="full";api.setWindowMode({mode:"full"});requestAnimationFrame(function(){placeNavInd(true);});}
   }
-  if(window.ResizeObserver)new ResizeObserver(function(){if(document.documentElement.classList.contains("compact"))updateWindowMode();}).observe($("joinInner"));
+  if(window.ResizeObserver){var ro=new ResizeObserver(function(){if(document.documentElement.classList.contains("compact"))updateWindowMode();});ro.observe($("joinInner"));ro.observe($("tab-settings"));}
   function signalReady(){if(appReadySent||!(isApp&&api.appReady))return;appReadySent=true;requestAnimationFrame(function(){requestAnimationFrame(function(){api.appReady();});});}
   function updateTitle(){
     var tt,code=false;
@@ -854,6 +922,7 @@ html.compact #joinSettings{display:inline-grid}
   $("goRoom").addEventListener("click",function(){showTab("room");});
   $("topSettings").addEventListener("click",function(){showTab("settings");});
   $("joinSettings").addEventListener("click",function(){showTab("settings");});
+  $("preBack").addEventListener("click",function(){showTab("room");});
   $("lanStrip").addEventListener("click",function(){showTab("lan");});
   function setStatus(cls,txt){$("status").className="status "+cls;$("statTxt").textContent=txt;var v=$("voiceState");v.className="vstate "+cls;v.textContent=cls==="ok"?"Conectado":txt;v.title=txt;}
 
@@ -1033,18 +1102,19 @@ html.compact #joinSettings{display:inline-grid}
       myId=id;wireCommon();enterRoom();commitRoster({},true);setStatus("wait","Entrando na sala…");
       var conn=p.connect(hostId,{reliable:true,metadata:{name:myName}});
       hookData(conn);
-      conn.on("open",function(){setTimeout(function(){sendHello(conn,null);},1500);}); // anfitrião de versão antiga não manda desafio
+      conn.on("open",function(){setTimeout(function(){sendHello(conn,null);},5000);}); // anfitrião de versão antiga não manda desafio
 
     });
     p.on("error",function(e){if(e&&(e.type==="peer-unavailable"||e.type==="unavailable-id"))return;fatal(e);});
   }
-  var helloSent=false;
+  var helloSent=false,helloProved=false;
   function sendHello(conn,ch){
-    if(helloSent)return;
+    if(helloSent&&(!ch||helloProved))return; // um desafio atrasado ainda pode ser respondido
     var base={t:"hello",name:myName,ver:APP_VERSION,mic:myMic(),deaf:deaf,lan:lanMine,lanOn:lanActive,snd:mySnd()};
     if(ch&&ch.locked&&!roomKey){helloSent=true;bounce("Essa sala tem senha. Digite a senha pra entrar.");return;}
     helloSent=true;
-    if(!ch){try{conn.send(base);}catch(_){}setStatus("ok","Online");return;}
+    if(!ch){try{conn.send(base);}catch(_){}return;}
+    helloProved=true;
     hostNonce=String(ch.nonce||"");myNonce=randHex(16);base.cn=myNonce;
     var go=function(){try{conn.send(base);}catch(_){}};
     if(ch.locked&&roomKey)hmacHex(roomKey,"c|"+hostNonce+"|"+myId).then(function(pr){base.proof=pr;go();});else go();
@@ -1120,7 +1190,11 @@ html.compact #joinSettings{display:inline-grid}
     if(until&&until>Date.now()){hostDeny(conn,"kicked");return;}
     var welcome=function(proof){try{conn.send({t:"welcome",locked:!!roomKey,proof:proof||null});}catch(_){}hostAdmit(conn,msg);};
     if(!roomKey){welcome(null);return;}
-    if(!msg.proof||!conn._nonce){hostDeny(conn,"senha");return;}
+    if(!msg.proof||!conn._nonce){
+      if(!conn._denyTimer)conn._denyTimer=setTimeout(function(){if(!conn._ok)hostDeny(conn,"senha");},4000);
+      return;
+    }
+    if(conn._denyTimer){clearTimeout(conn._denyTimer);conn._denyTimer=null;}
     hmacHex(roomKey,"c|"+conn._nonce+"|"+conn.peer).then(function(exp){
       if(exp!==msg.proof){hostDeny(conn,"senha");return;}
       if(msg.cn)hmacHex(roomKey,"h|"+String(msg.cn)+"|"+conn._nonce).then(welcome);else welcome(null);
@@ -1479,7 +1553,7 @@ html.compact #joinSettings{display:inline-grid}
 
   // ---------- entrar / sair ----------
   function enterRoom(){
-    inRoom=true;$("joinView").hidden=true;$("roomView").hidden=false;$("roomChip").hidden=false;$("roomLabel").textContent=roomCode;$("roomTitle").textContent=roomCode;
+    inRoom=true;$("joinView").hidden=true;$("roomView").hidden=false;animScene($("roomView"),"scene-up");if(curTab!=="room")showTab("room");$("roomChip").hidden=false;$("roomLabel").textContent=roomCode;$("roomTitle").textContent=roomCode;
     updateTitle();updateWindowMode();updateMicUI();updateShareUI();renderStage();applyOutput();updateAudioSummary();playSnd("entrar");
     sysMsg("Você entrou na sala "+roomCode+".");
     if(ovHost&&serverIps&&serverIps.length)sysMsg("Servidor rodando neste PC. Os amigos colocam em Configurações → Servidor de conexão: host "+serverIps.join(" ou ")+", porta "+ovPort+".");
@@ -2300,7 +2374,7 @@ html.compact #joinSettings{display:inline-grid}
   loadSettings().then(function(s){
     cfg=Object.assign({},DEF,s||{});
     prefill();updateShareUI();updateMicUI();refreshDevices();applyOutput();refreshLan();renderComputers();lanUI();
-    updateWindowMode();signalReady();
+    updateWindowMode();signalReady();placeNavInd(true);
     settingsLoaded=true;if(resumePending){tryResume();return;}
     var skip=false;try{skip=sessionStorage.getItem("tatao_skip")==="1"||sessionStorage.getItem("salalan_skip")==="1";sessionStorage.removeItem("tatao_skip");sessionStorage.removeItem("salalan_skip");
       var bm=sessionStorage.getItem("tatao_msg");if(bm){sessionStorage.removeItem("tatao_msg");$("lobbyErr").textContent=bm;if(/senha/i.test(bm))$("roomPass").focus();}}catch(_){}

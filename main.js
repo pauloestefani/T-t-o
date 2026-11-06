@@ -597,7 +597,9 @@ function visibleOnScreen(b) {
 }
 function setLoginMode(h) {
   if (!win || win.isDestroyed()) return;
-  const H = Math.max(380, Math.min(880, Math.round(+h || loginH)));
+  let maxH = 880;
+  try { maxH = Math.min(880, screen.getDisplayMatching(win.getBounds()).workArea.height - 40); } catch (_) {}
+  const H = Math.max(380, Math.min(maxH, Math.round(+h || loginH))); // mais alto que a tela: rola por dentro
   const fromFull = winMode !== "login";
   if (winMode === "full") saveWinState();
   const before = win.getBounds(), cx = before.x + before.width / 2, cy = before.y + before.height / 2;
