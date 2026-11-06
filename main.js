@@ -201,8 +201,9 @@ async function lanStop() {
 function relaunchElevated(resume) {
   if (process.platform !== "win32") return { ok: false };
   const exe = app.getPath("exe").replace(/'/g, "''");
-  const arg = "--tatao-resume=" + Buffer.from(JSON.stringify(resume || {})).toString("base64");
-  const ps = "try { Start-Process -FilePath '" + exe + "' -ArgumentList '" + arg + "' -Verb RunAs -ErrorAction Stop } catch { Start-Process -FilePath '" + exe + "' }";
+  const arg = resume ? "--tatao-resume=" + Buffer.from(JSON.stringify(resume)).toString("base64") : "";
+  // se a pessoa disser "Não" no Windows, abre normal (e não pede de novo, mesmo com "sempre como administrador")
+  const ps = "try { Start-Process -FilePath '" + exe + "'" + (arg ? " -ArgumentList '" + arg + "'" : "") + " -Verb RunAs -ErrorAction Stop } catch { Start-Process -FilePath '" + exe + "' -ArgumentList '--tatao-noelevate' }";
   lanStop().finally(() => {
     try { app.releaseSingleInstanceLock(); } catch (_) {}
     spawn("powershell.exe", ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps], { detached: true, stdio: "ignore", windowsHide: true }).unref();
@@ -703,6 +704,7 @@ ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), ap
 ipcMain.handle("music:testKey", (_e, k) => ytTestKey(k));
 ipcMain.on("win:mode", (_e, o) => { o = o || {}; if (o.mode === "full") setFullMode(); else setLoginMode(o.h); });
 ipcMain.on("app:ready", () => revealMain());
+ipcMain.handle("app:isAdmin", () => process.platform === "win32" ? isAdmin() : null);
 ipcMain.on("theme:bg", (_e, c) => { try { if (win && !win.isDestroyed() && /^#[0-9a-f]{6}$/i.test(String(c))) win.setBackgroundColor(String(c)); } catch (_) {} });
 ipcMain.handle("pcaudio:available", () => pcAvailable());
 ipcMain.handle("pcaudio:list", () => pcList());
@@ -726,7 +728,11 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => { if (win && appShown) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => {
+    // opção "Sempre abrir como administrador": reabre pedindo permissão do Windows antes de mostrar qualquer janela
+    if (process.platform === "win32" && readCfg().alwaysAdmin && !process.argv.includes("--tatao-noelevate") && !isAdmin()) { relaunchElevated(null); return; }
+    createWindow();
+  });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
   app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} lanStop(); pcStop(); });

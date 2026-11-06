@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setThemeBg: (c) => ipcRenderer.send("theme:bg", c),
   setWindowMode: (o) => ipcRenderer.send("win:mode", o),
   appReady: () => ipcRenderer.send("app:ready"),
+  isAdmin: () => ipcRenderer.invoke("app:isAdmin"),
   musicResolve: (url) => ipcRenderer.invoke("music:resolve", url),
   musicSearch: (o) => ipcRenderer.invoke("music:search", o),
   musicKeyInfo: () => ipcRenderer.invoke("music:keyInfo"),

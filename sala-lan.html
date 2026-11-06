@@ -695,11 +695,15 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
             <div class="netline" id="lanIpLine" hidden>Seu IP na rede: <code id="lanMyIp">—</code><button class="btn small" id="lanCopyIp"><svg class="ic sm"><use href="#i-copy"/></svg>Copiar</button></div>
             <div class="controls"><button class="btn primary" id="lanToggle">Ligar rede LAN</button></div>
             <div class="note warn" id="lanAdmin" hidden style="margin-top:14px">
-              Pra criar a placa de rede virtual, o Windows precisa de permissão de administrador. O Tátão vai reabrir já nesta sala e ligar a rede.
+              Pra criar a placa de rede virtual, o Windows precisa de permissão de administrador. O Tátão vai reabrir já nesta sala e ligar a rede. Pra não precisar disso toda vez, marque "Sempre abrir o Tátão como administrador" aqui embaixo.
               <div class="controls"><button class="btn primary" id="lanElevate">Reabrir como administrador</button></div>
             </div>
             <div class="err" id="lanErr"></div>
             <label class="check"><input type="checkbox" id="lanAuto"> Ligar a rede LAN automaticamente ao entrar na sala</label>
+            <div id="adminBox" hidden>
+              <label class="check"><input type="checkbox" id="alwaysAdmin"> Sempre abrir o Tátão como administrador</label>
+              <p class="muted" id="adminState" style="margin:-6px 0 12px 26px"></p>
+            </div>
             <div class="note">Funciona como o Radmin: cada pessoa da sala que ligar a rede ganha um IP <b>10.77.x.x</b> e todos ficam na mesma LAN. Os pacotes do jogo vão direto de PC pra PC, criptografados, sem servidor no meio. No jogo, crie ou procure a partida em <b>LAN</b>; se ele pedir o IP do anfitrião, use o IP que aparece ao lado do nome dele.</div>
           </div>
           <div class="panel">
@@ -796,7 +800,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.14.1";
+  var APP_VERSION="1.14.2";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -827,7 +831,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   // ---------- configurações (salvas em disco no app) ----------
   var DEF={name:"",room:"",autojoin:false,host:"",port:"",hostServer:false,serverPort:"9000",
     inDev:"default",outDev:"default",inVol:100,outVol:80,micDisabled:false,ns:true,ec:true,agc:true,
-    quality:"1080p",fps:"60",shareType:"screen",shareAudio:true,lanAuto:false,lanMap:{},lanSeen:{},musicVol:80,pcSrcExe:"",ytKey:"",roomPass:"",peerAudio:{},theme:"grafite"};
+    quality:"1080p",fps:"60",shareType:"screen",shareAudio:true,lanAuto:false,lanMap:{},lanSeen:{},musicVol:80,pcSrcExe:"",ytKey:"",roomPass:"",peerAudio:{},theme:"grafite",alwaysAdmin:false};
   var cfg={};
   function loadSettings(){
     if(isApp&&api.getSettings)return api.getSettings().then(function(s){return s||{};}).catch(function(){return{};});
@@ -2092,6 +2096,17 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   $("lanElevate").addEventListener("click",function(){if(api.lanElevate)api.lanElevate({name:myName,room:roomCode,lan:true});});
   $("lanCopyIp").addEventListener("click",function(){if(myVip)copyText(myVip,this);});
   $("lanAuto").addEventListener("change",function(){setCfg("lanAuto",this.checked);});
+  // abrir sempre como administrador (só no app para Windows)
+  function adminUI(){
+    if(!(isApp&&api.isAdmin))return;
+    api.isAdmin().then(function(a){
+      if(a===null)return; // não é Windows
+      $("adminBox").hidden=false;$("alwaysAdmin").checked=!!cfg.alwaysAdmin;
+      $("adminState").textContent=(a?"Agora o Tátão está aberto como administrador. ":"Agora o Tátão está aberto normal. ")+
+        (cfg.alwaysAdmin?"Ele vai pedir a permissão do Windows toda vez que abrir.":"Marque pra ele já abrir com permissão pra rede LAN (o Windows pergunta toda vez).");
+    }).catch(function(){});
+  }
+  $("alwaysAdmin").addEventListener("change",function(){setCfg("alwaysAdmin",this.checked);adminUI();});
   // reaberto como administrador: volta pra mesma sala e liga a rede
   function tryResume(){
     if(!resumePending||!settingsLoaded)return;
@@ -2374,7 +2389,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   loadSettings().then(function(s){
     cfg=Object.assign({},DEF,s||{});
     prefill();updateShareUI();updateMicUI();refreshDevices();applyOutput();refreshLan();renderComputers();lanUI();
-    updateWindowMode();signalReady();placeNavInd(true);
+    updateWindowMode();signalReady();placeNavInd(true);adminUI();
     settingsLoaded=true;if(resumePending){tryResume();return;}
     var skip=false;try{skip=sessionStorage.getItem("tatao_skip")==="1"||sessionStorage.getItem("salalan_skip")==="1";sessionStorage.removeItem("tatao_skip");sessionStorage.removeItem("salalan_skip");
       var bm=sessionStorage.getItem("tatao_msg");if(bm){sessionStorage.removeItem("tatao_msg");$("lobbyErr").textContent=bm;if(/senha/i.test(bm))$("roomPass").focus();}}catch(_){}
