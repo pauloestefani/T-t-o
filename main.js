@@ -460,6 +460,25 @@ async function ytTestKey(k) {
   } catch (e) { return { ok: false, error: "net" }; }
 }
 
+// ---------- arquivos recebidos: gravados direto no disco, em Downloads\Tátão ----------
+const xfers = new Map();
+let xferSeq = 0;
+function recvDir() { const d = path.join(app.getPath("downloads"), "Tátão"); fs.mkdirSync(d, { recursive: true }); return d; }
+function safeFileName(n) {
+  n = String(n || "arquivo").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 180) || "arquivo";
+  if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(n)) n = "_" + n;
+  return n;
+}
+function freePath(dir, name) {
+  const taken = (p) => fs.existsSync(p) || fs.existsSync(p + ".part");
+  let p = path.join(dir, name); if (!taken(p)) return p;
+  const ext = path.extname(name), base = name.slice(0, name.length - ext.length);
+  for (let i = 2; i < 1000; i++) { p = path.join(dir, base + " (" + i + ")" + ext); if (!taken(p)) return p; }
+  return path.join(dir, Date.now() + "-" + name);
+}
+function insideRecvDir(p) { try { const rel = path.relative(recvDir(), path.resolve(String(p))); return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel); } catch (_) { return false; } }
+const RISKY_EXT = /\.(exe|msi|msix|appx|bat|cmd|com|scr|pif|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|reg|jar|cpl|msc|dll|sys|inf|scf|url|iso|img|vhd|vhdx)$/i;
+
 // ---------- servidor de sinalização embutido (tipo Radmin) ----------
 function startPeerServer(port) {
   port = Number(port) || 9000;
@@ -694,6 +713,7 @@ function createWindow() {
   win.on("resize", queueSave); win.on("move", queueSave);
   win.on("close", saveWinState);
   // links externos abrem no navegador, não numa janela do app
+  win.webContents.on("will-navigate", (e, url) => { if (!/sala-lan\.html/.test(String(url))) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
 
   // o player do YouTube recusa tocar (erro 153) quando o pedido não diz de onde veio; uma página local não manda isso
@@ -750,6 +770,42 @@ ipcMain.handle("lan:elevate", (_e, r) => elevateNow(r, win));
 ipcMain.handle("app:setAlwaysAdmin", (_e, on) => ({ ok: setRunAsAdminFlag(!!on), admin: isAdmin() }));
 ipcMain.handle("app:elevate", () => elevateNow(null, win));
 ipcMain.on("lan:out", (_e, buf) => { try { lanWrite(buf); } catch (_) {} });
+ipcMain.handle("file:open", (_e, o) => {
+  try {
+    const final = freePath(recvDir(), safeFileName(o && o.name));
+    const tmp = final + ".part", ws = fs.createWriteStream(tmp), id = ++xferSeq;
+    const x = { ws, tmp, final, bytes: 0, size: Math.max(0, +(o && o.size) || 0), err: null };
+    ws.on("error", (e) => { x.err = String((e && e.message) || e); });
+    xfers.set(id, x);
+    return { ok: true, id, name: path.basename(final) };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+});
+ipcMain.on("file:write", (_e, id, buf) => {
+  const x = xfers.get(id); if (!x || x.err || !buf) return;
+  x.bytes += buf.length;
+  if (x.bytes > x.size) { x.err = "veio mais do que o tamanho combinado"; return; }
+  x.ws.write(buf.buffer ? Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength) : Buffer.from(buf));
+});
+ipcMain.handle("file:close", (_e, id, ok) => new Promise((resolve) => {
+  const x = xfers.get(id); if (!x) { resolve({ ok: false, error: "sem arquivo" }); return; }
+  xfers.delete(id);
+  x.ws.end(() => {
+    if (!ok || x.err || x.bytes !== x.size) { fs.rm(x.tmp, { force: true }, () => resolve({ ok: false, error: x.err || (ok ? "arquivo incompleto" : "cancelado") })); return; }
+    try {
+      const final = fs.existsSync(x.final) ? freePath(path.dirname(x.final), path.basename(x.final)) : x.final;
+      fs.renameSync(x.tmp, final);
+      // marca como vindo da internet: o Windows avisa antes de abrir programas recebidos
+      if (process.platform === "win32") { try { fs.writeFileSync(final + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n"); } catch (_) {} }
+      resolve({ ok: true, path: final, name: path.basename(final), risky: RISKY_EXT.test(final) });
+    } catch (e) { resolve({ ok: false, error: String((e && e.message) || e) }); }
+  });
+}));
+ipcMain.handle("file:show", (_e, p) => { if (!insideRecvDir(p)) return false; shell.showItemInFolder(String(p)); return true; });
+ipcMain.handle("file:open-path", async (_e, p) => {
+  if (!insideRecvDir(p) || RISKY_EXT.test(String(p))) return "bloqueado";
+  return shell.openPath(String(p));
+});
+ipcMain.handle("file:folder", () => { const d = recvDir(); shell.openPath(d); return d; });
 ipcMain.handle("music:resolve", (_e, url) => deezerResolve(url).catch((e) => ({ ok: false, error: "Não consegui falar com o Deezer agora." })));
 ipcMain.handle("music:search", (_e, o) => ytSearch(o).catch(() => ({ ok: false, error: "net" })));
 ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), app: !!String(appKeys().ytKey || "").trim() }));

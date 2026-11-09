@@ -344,6 +344,23 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 .pcl .eq{color:var(--t-accent-ink);flex:none}.pcl .pct{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .msub{display:none}
 
+.chatform input#chatInput{padding-left:44px}
+.chatform .attachbtn{position:absolute;left:4px;top:4px;width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--t-muted)}
+.chatform .attachbtn:hover{background:var(--t-surface-raised);color:var(--t-text)}
+.panel h2 .small-ic{width:32px;height:32px}
+.fcard{display:flex;align-items:center;gap:12px;margin-top:4px;padding:10px 10px 10px 12px;border:1px solid var(--t-border);border-radius:var(--t-radius-md);background:var(--t-bg-deep);min-width:0;flex-wrap:wrap}
+.fcard .ficon{flex:none;width:40px;height:44px;border-radius:8px;display:grid;place-items:center;font:700 10px var(--t-mono);background:var(--t-surface-raised);color:var(--t-accent-ink);letter-spacing:.02em}
+.fcard .finfo{flex:1 1 140px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.fcard .fname{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--t-text)}
+.fcard .fmeta{font-size:12px;color:var(--t-muted);font-family:var(--t-mono)}
+.fcard .fbar{height:5px;border-radius:99px;background:var(--t-track);overflow:hidden;margin-top:4px}
+.fcard .fbar i{display:block;height:100%;background:var(--t-accent-ink);border-radius:99px;transition:width .3s}
+.fcard .fact{display:flex;gap:6px;flex:none;margin-left:auto}
+.fprev{display:block;max-width:100%;max-height:220px;margin-top:8px;border-radius:10px;border:1px solid var(--t-border);object-fit:contain;background:var(--t-bg-deep)}
+.dropzone{position:fixed;inset:0;z-index:75;display:grid;place-items:center;background:rgba(17,20,25,.72);pointer-events:none;animation:fadeIn .15s ease-out both}
+.dropzone .dzbox{display:flex;flex-direction:column;align-items:center;gap:10px;padding:34px 40px;border:2px dashed var(--t-accent);border-radius:20px;background:var(--t-surface);color:var(--t-text);text-align:center;max-width:min(420px,90vw)}
+.dropzone .dzbox .ic{width:40px;height:40px;color:var(--t-accent-ink)}
+.dropzone .dzbox strong{font-size:18px}.dropzone .dzbox span{font-size:13px;color:var(--t-muted)}
 /* ---------- rede LAN ---------- */
 .device{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--t-border);padding:13px 0}
 .device:last-child{border-bottom:0}
@@ -518,6 +535,9 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   <symbol id="i-vol-off" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
   <symbol id="i-kick" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 11.5-4.2M16 15l5 5M21 15l-5 5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5 12.2 19.3a5 5 0 0 1-7.1-7.1l8.2-8.2a3.4 3.4 0 0 1 4.8 4.8l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-pcaudio" viewBox="0 0 24 24"><rect x="2.5" y="4" width="13" height="10" rx="1.5"/><path d="M6 18h6M9 14v4"/><path d="M18.5 8.5a3.5 3.5 0 0 1 0 5M20.5 6a7 7 0 0 1 0 10"/></symbol>
 </svg>
@@ -545,10 +565,12 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   </div>
 </div>
 
+<div class="dropzone" id="dropZone" hidden><div class="dzbox"><svg class="ic"><use href="#i-file"/></svg><strong>Solte pra mandar pra sala</strong><span>Fica disponível pra todos baixarem enquanto você estiver na sala.</span></div></div>
 <div class="pmenu" id="personMenu" hidden role="menu" aria-labelledby="pmName">
   <div class="pmhead" id="pmName"></div>
   <label class="pmvol"><svg class="ic sm"><use href="#i-vol"/></svg><input type="range" class="range" id="pmVol" min="0" max="100" value="100" aria-label="Volume dessa pessoa pra você"><span class="val"><span id="pmVolVal">100</span>%</span></label>
   <button class="pmitem" id="pmMute" role="menuitemcheckbox" aria-checked="false"><svg class="ic sm"><use href="#i-vol-off"/></svg><span>Silenciar pra mim</span></button>
+  <button class="pmitem" id="pmFile" role="menuitem"><svg class="ic sm"><use href="#i-clip"/></svg><span>Mandar arquivo só pra essa pessoa</span></button>
   <div id="pmHost">
     <div class="pmsep"></div>
     <div class="pmlabel">Anfitrião</div>
@@ -645,9 +667,9 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               </div>
             </section>
             <section class="panel chat">
-              <h2>Resenha</h2>
+              <h2>Resenha<button class="iconbtn small-ic" id="openRecv" title="Abrir a pasta dos arquivos recebidos" aria-label="Abrir a pasta dos arquivos recebidos" style="margin-left:auto"><svg class="ic"><use href="#i-folder"/></svg></button></h2>
               <div class="messages" id="messages" role="log" aria-live="polite"></div>
-              <form class="chatform" id="chatForm"><input id="chatInput" type="text" maxlength="500" placeholder="Manda uma mensagem…" autocomplete="off" aria-label="Mensagem"><button class="sendbtn" aria-label="Enviar" title="Enviar"><svg class="ic"><use href="#i-send"/></svg></button></form>
+              <form class="chatform" id="chatForm"><button type="button" class="attachbtn" id="attachBtn" aria-label="Mandar arquivo pra sala" title="Mandar arquivo (ou arraste pra cá)"><svg class="ic"><use href="#i-clip"/></svg></button><input type="file" id="fileInput" multiple hidden><input id="chatInput" type="text" maxlength="500" placeholder="Manda uma mensagem…" autocomplete="off" aria-label="Mensagem"><button class="sendbtn" aria-label="Enviar" title="Enviar"><svg class="ic"><use href="#i-send"/></svg></button></form>
             </section>
             <section class="panel music" aria-label="Música da sala">
               <div class="mhead">
@@ -801,7 +823,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.14.3";
+  var APP_VERSION="1.15.0";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -1144,6 +1166,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   function wireCommon(){
     peer.on("connection",function(conn){
       if(conn.label==="lan"){whenMember(conn.peer,function(){hookLan(conn);},function(){try{conn.close();}catch(_){}});return;}
+      if(conn.label==="file"){whenMember(conn.peer,function(){serveFile(conn);},function(){try{conn.close();}catch(_){}});return;}
       if(!isHost&&conn.peer!==hostId){try{conn.close();}catch(_){}return;} // só o anfitrião fala comigo por dados
       hookData(conn);
     });
@@ -1227,8 +1250,12 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
       if(!helloSent)return;
       commitRoster(msg.members||{});
       if($("statTxt").textContent==="Entrando na sala…")setStatus("ok","Online");
+    }else if(msg.t==="file"){
+      var fo=cleanOffer(msg);if(!fo)return;
+      if(isHost){fo.from=conn.peer;fo.fromName=(members[conn.peer]&&members[conn.peer].name)||fo.fromName;relayOffer(fo,conn.peer);if(fo.to&&fo.to!==myId)return;}
+      if(offers[fo.id])return;offers[fo.id]=fo;addFileCard(fo);playSnd("msg");
     }else if(msg.t==="chat"){
-      if(isHost){for(var id in dataConns){if(id!==conn.peer&&dataConns[id]._ok){try{dataConns[id].send(msg);}catch(_){}}}}
+      if(isHost){msg.name=(members[conn.peer]&&members[conn.peer].name)||msg.name;for(var id in dataConns){if(id!==conn.peer&&dataConns[id]._ok){try{dataConns[id].send(msg);}catch(_){}}}}
       addChat(msg.name,msg.text,msg.ts,false);playSnd("msg");
     }else if(msg.t==="music"){
       if(msg.action==="state"){if(!isHost)applyMusic(msg.state);}
@@ -1256,7 +1283,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     }
     rememberSeen(nm);
     members=nm;prevRoster={};for(var c in members)prevRoster[c]={name:members[c].name};
-    if(!inicial)rosterReady=true;applyOutput();renderPeople();renderComputers();syncMesh();lanAfterRoster();musicAfterRoster();
+    if(!inicial)rosterReady=true;applyOutput();renderPeople();filesAfterRoster();renderComputers();syncMesh();lanAfterRoster();musicAfterRoster();
   }
   // avisa a sala quando você muda microfone/áudio ou a rede virtual muda
   function pushMyState(){
@@ -1478,6 +1505,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     var k=$("pmKick");k.classList.toggle("confirm",pmKickArmed);k.lastChild.textContent=pmKickArmed?"Clique de novo pra expulsar":"Expulsar da sala";
   }
   $("pmVol").addEventListener("input",function(){if(!pmPid)return;$("pmVolVal").textContent=this.value;setPeerAudio(pmPid,{vol:+this.value});});
+  $("pmFile").addEventListener("click",function(){if(!pmPid)return;var p=pmPid;closePersonMenu();fileTarget=p;$("fileInput").value="";$("fileInput").click();});
   $("pmMute").addEventListener("click",function(){if(!pmPid)return;setPeerAudio(pmPid,{mute:!peerAudio(pmPid).mute});fillPersonMenu();});
   $("pmSmute").addEventListener("click",function(){if(pmPid)hostSetSmute(pmPid,!(members[pmPid]&&members[pmPid].smute));fillPersonMenu();});
   $("pmKick").addEventListener("click",function(){if(!pmPid)return;if(!pmKickArmed){pmKickArmed=true;fillPersonMenu();return;}var p=pmPid;closePersonMenu();hostKick(p);});
@@ -1540,7 +1568,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     var inp=$("chatInput"),txt=inp.value.trim();if(!txt||!inRoom)return;inp.value="";
     var msg={t:"chat",from:myId,name:myName,text:txt,ts:Date.now()};
     addChat(myName,txt,msg.ts,true);
-    if(isHost){for(var id in dataConns){try{dataConns[id].send(msg);}catch(_){}}}
+    if(isHost){for(var id in dataConns){if(!dataConns[id]._ok)continue;try{dataConns[id].send(msg);}catch(_){}}}
     else{var h=dataConns[hostId];if(h){try{h.send(msg);}catch(_){}}}
   });
   function addChat(name,text,ts,mine){
@@ -1572,7 +1600,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   }
   function cleanup(){
     if(lanActive&&api.lanStop){try{api.lanStop();}catch(_){}}
-    stopSharing(true);stopPcShare();stopPings();
+    stopSharing(true);stopPcShare();stopPings();myFiles={};for(var dk in downloads){var dd=downloads[dk];if(dd&&dd.fail&&!dd.done)dd.fail("você saiu da sala");}
     for(var rm in remoteMusic)removeRemoteMusic(rm);
     if(rawMic)rawMic.getTracks().forEach(function(t){try{t.stop();}catch(_){}});
     for(var id in remoteAudioEls)removeRemoteAudio(id);
@@ -1996,6 +2024,188 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   $("musicVol").addEventListener("input",function(){setCfg("musicVol",+this.value);$("musicVolVal").textContent=this.value;applyOutput();applyYtVol();});
   if(isApp&&api.pcAudioAvailable){api.pcAudioAvailable().then(function(v){pcAvail=!!v;updatePcUI();if(pcAvail)pcRefreshList();}).catch(function(){updatePcUI();});}
   else updatePcUI();
+
+  // ================= ARQUIVOS =================
+  // Quem manda só anuncia o arquivo no chat; quem quiser baixa direto do PC de quem mandou (P2P, sem servidor).
+  // O arquivo fica disponível enquanto quem mandou estiver na sala.
+  var myFiles={},offers={},downloads={},FCH=64*1024;
+  var RISKY=/\.(exe|msi|msix|appx|bat|cmd|com|scr|pif|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|reg|jar|cpl|msc|dll|sys|inf|scf|url|iso|img|vhd|vhdx)$/i;
+  function fmtSize(n){n=+n||0;if(n<1024)return n+" B";var u=["KB","MB","GB","TB"],i=-1;do{n/=1024;i++;}while(n>=1024&&i<u.length-1);return n.toLocaleString("pt-BR",{maximumFractionDigits:n<10?1:0})+" "+u[i];}
+  function extOf(n){var m=/\.([a-z0-9]{1,5})$/i.exec(String(n||""));return m?m[1].toUpperCase():"ARQ";}
+  function cleanOffer(m){
+    if(!m||!/^[0-9a-f]{8,32}$/.test(String(m.id||"")))return null;
+    return{t:"file",id:String(m.id),name:String(m.name||"arquivo").slice(0,200),size:Math.max(0,+m.size||0),mime:String(m.mime||"").slice(0,100),
+      from:String(m.from||""),fromName:String(m.fromName||"Jogador").slice(0,20),ts:+m.ts||Date.now(),to:m.to?String(m.to):null};
+  }
+  // ---- mandar ----
+  function offerFiles(list,to){
+    if(!inRoom)return;
+    Array.prototype.forEach.call(list||[],function(f){
+      if(!f||typeof f.size!=="number")return;
+      var id=randHex(8);myFiles[id]={file:f,to:to||null,count:0};
+      var msg={t:"file",id:id,name:f.name||"arquivo",size:f.size,mime:f.type||"",from:myId,fromName:myName,ts:Date.now(),to:to||null};
+      offers[id]=msg;addFileCard(msg);
+      if(isHost)relayOffer(msg,myId);else{var h=dataConns[hostId];if(h){try{h.send(msg);}catch(_){}}}
+    });
+  }
+  function relayOffer(msg,except){for(var id in dataConns){if(id===except||!dataConns[id]._ok)continue;if(msg.to&&msg.to!==id)continue;try{dataConns[id].send(msg);}catch(_){}}}
+  function stopOffer(id){delete myFiles[id];renderFileCard(id);}
+  // alguém pediu um arquivo meu
+  function serveFile(conn){
+    conn.on("data",function(data){
+      if(typeof data!=="string")return;var m;try{m=JSON.parse(data);}catch(_){return;}
+      if(!m||m.t!=="get")return;
+      var f=myFiles[m.id];
+      if(!f){try{conn.send(JSON.stringify({t:"err",reason:"indisponivel"}));}catch(_){}return;}
+      if(f.to&&f.to!==conn.peer){try{conn.send(JSON.stringify({t:"err",reason:"privado"}));}catch(_){}return;}
+      try{conn.send(JSON.stringify({t:"meta",id:m.id,size:f.file.size}));}catch(_){return;}
+      pumpFile(conn,f,m.id);
+    });
+  }
+  // lê do disco em blocos de 1 MB (o próximo já vai sendo lido) e manda em pedaços de 64 KB, sem lotar o canal
+  function pumpFile(conn,f,id){
+    var dc=conn.dataChannel,size=f.file.size,stopped=false,READ=1<<20,HI=6<<20,rOff=0,blk=null,bo=0,ahead=null,waiting=false;
+    try{dc.bufferedAmountLowThreshold=2<<20;}catch(_){}
+    conn.on("close",function(){stopped=true;});
+    var readNext=function(){if(rOff>=size)return null;var s=rOff,e=Math.min(size,s+READ);rOff=e;return f.file.slice(s,e).arrayBuffer();};
+    var bad=function(){stopped=true;try{conn.send(JSON.stringify({t:"err",reason:"leitura"}));}catch(_){}};
+    var next=function(){
+      if(stopped||waiting)return;
+      if(!myFiles[id]){stopped=true;try{conn.send(JSON.stringify({t:"err",reason:"indisponivel"}));}catch(_){}return;}
+      while(blk&&bo<blk.byteLength){
+        if(dc&&dc.bufferedAmount>HI){waiting=true;var h=function(){dc.removeEventListener("bufferedamountlow",h);waiting=false;next();};dc.addEventListener("bufferedamountlow",h);return;}
+        var e=Math.min(blk.byteLength,bo+FCH);
+        try{conn.send(blk.slice(bo,e));}catch(_){stopped=true;return;}
+        bo=e;
+      }
+      blk=null;
+      var p=ahead||readNext();ahead=null;
+      if(!p){try{conn.send(JSON.stringify({t:"end",id:id}));}catch(_){}f.count++;renderFileCard(id);return;}
+      waiting=true;
+      p.then(function(b){waiting=false;if(stopped)return;blk=b;bo=0;ahead=readNext();if(ahead)ahead.catch(function(){});next();},function(){waiting=false;bad();});
+    };
+    next();
+  }
+  // ---- baixar ----
+  function startDownload(id){
+    var o=offers[id];if(!o||downloads[id]&&!downloads[id].failed&&!downloads[id].done)return;
+    if(!members[o.from]){renderFileCard(id);return;}
+    var d=downloads[id]={got:0,size:o.size,t0:Date.now(),handle:null,pending:[],chunks:[],ended:false,done:false,failed:null,speed:0,lastT:Date.now(),lastB:0};
+    var conn;try{conn=peer.connect(o.from,{label:"file",serialization:"raw",reliable:true});}catch(e){d.failed="não deu pra conectar";renderFileCard(id);return;}
+    d.conn=conn;
+    var fail=function(why){if(d.done||d.failed)return;d.failed=why;try{conn.close();}catch(_){}if(d.handle!=null&&api.fileClose)api.fileClose(d.handle,false);d.chunks=[];renderFileCard(id);};
+    d.fail=fail;
+    var useDisk=!!(isApp&&api.fileOpen);
+    // junta os pedaços e grava de 1 MB em 1 MB (menos idas e vindas com o disco)
+    d.plen=0;
+    var flushPending=function(){
+      if(d.handle==null||d.failed||d.done)return;
+      if(d.pending.length){var b=d.pending[0];if(d.pending.length>1){b=new Uint8Array(d.plen);var at=0;for(var i=0;i<d.pending.length;i++){b.set(d.pending[i],at);at+=d.pending[i].byteLength;}}api.fileWrite(d.handle,b);d.pending=[];d.plen=0;}
+      if(d.ended)finish();
+    };
+    var finish=function(){
+      if(d.done||d.failed)return;
+      if(d.got!==d.size){fail("arquivo incompleto");return;}
+      if(useDisk){
+        if(d.handle==null)return;
+        api.fileClose(d.handle,true).then(function(r){if(r&&r.ok){d.done=true;d.path=r.path;d.savedName=r.name;d.risky=!!r.risky;}else d.failed=(r&&r.error)||"não deu pra salvar";renderFileCard(id);try{conn.close();}catch(_){}});
+      }else{
+        var blob=new Blob(d.chunks,{type:o.mime||"application/octet-stream"});d.chunks=[];d.url=URL.createObjectURL(blob);d.done=true;
+        var a=document.createElement("a");a.href=d.url;a.download=o.name;document.body.appendChild(a);a.click();a.remove();
+        renderFileCard(id);try{conn.close();}catch(_){}
+      }
+    };
+    conn.on("open",function(){try{conn.send(JSON.stringify({t:"get",id:id}));}catch(_){fail("não deu pra pedir o arquivo");}});
+    conn.on("data",function(data){
+      if(d.done||d.failed)return;
+      if(typeof data==="string"){
+        var m;try{m=JSON.parse(data);}catch(_){return;}
+        if(m.t==="meta"){
+          if(+m.size!==o.size){fail("o tamanho não bate");return;}
+          if(useDisk)api.fileOpen({name:o.name,size:o.size}).then(function(r){if(!r||!r.ok){fail((r&&r.error)||"não deu pra criar o arquivo");return;}d.handle=r.id;flushPending();},function(){fail("não deu pra criar o arquivo");});
+        }else if(m.t==="end"){d.ended=true;if(useDisk)flushPending();else finish();}
+        else if(m.t==="err"){fail(m.reason==="privado"?"esse arquivo é pra outra pessoa":m.reason==="leitura"?"quem mandou não conseguiu ler o arquivo":"quem mandou parou de compartilhar");}
+        return;
+      }
+      var u8=data instanceof ArrayBuffer?new Uint8Array(data):(data&&data.buffer?new Uint8Array(data.buffer,data.byteOffset,data.byteLength):null);
+      if(!u8)return;
+      d.got+=u8.byteLength;if(d.got>d.size){fail("veio mais do que o combinado");return;}
+      if(useDisk){d.pending.push(u8);d.plen+=u8.byteLength;if(d.plen>=(1<<20))flushPending();}else d.chunks.push(u8);
+      var now=Date.now();if(now-d.lastT>500){d.speed=(d.got-d.lastB)*1000/(now-d.lastT);d.lastT=now;d.lastB=d.got;renderFileCard(id);}
+    });
+    conn.on("close",function(){if(!d.done&&!d.failed){if(d.ended)return;fail("a conexão caiu");}});
+    conn.on("error",function(){fail("a conexão caiu");});
+    renderFileCard(id);
+  }
+  // ---- cartão no chat ----
+  function addFileCard(o){
+    var mine=o.from===myId;
+    var d=new Date(o.ts),hh=("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);
+    var el=document.createElement("div");el.className="message fmsg";el.setAttribute("data-fid",o.id);
+    var av=document.createElement("div");av.className="avatar mav";av.setAttribute("aria-hidden","true");paintAvatar(av,mine?myId:("n:"+o.fromName));av.textContent=initials(mine?myName:o.fromName);
+    var body=document.createElement("div");body.className="mbody";
+    var hd=document.createElement("div");var b=document.createElement("b");b.textContent=mine?"Você":o.fromName;
+    var tm=document.createElement("span");tm.className="tm";tm.textContent=hh;hd.appendChild(b);hd.appendChild(tm);
+    var card=document.createElement("div");card.className="fcard";
+    body.appendChild(hd);body.appendChild(card);el.appendChild(av);el.appendChild(body);appendMsg(el);
+    renderFileCard(o.id);
+  }
+  function renderFileCard(id){
+    var o=offers[id];if(!o)return;
+    var el=document.querySelector('.fmsg[data-fid="'+id+'"] .fcard');if(!el)return;
+    var mine=o.from===myId,d=downloads[id],to=o.to?(o.to===myId?"só pra você":"só pra "+((members[o.to]&&members[o.to].name)||"uma pessoa")):"";
+    var html='<span class="ficon" aria-hidden="true">'+esc(extOf(o.name))+'</span><div class="finfo"><span class="fname" title="'+esc(o.name)+'">'+esc(o.name)+'</span><span class="fmeta"></span></div><div class="fact"></div>';
+    el.innerHTML=html;
+    var meta=el.querySelector(".fmeta"),act=el.querySelector(".fact"),info=el.querySelector(".finfo");
+    var btn=function(label,fn,cls){var x=document.createElement("button");x.className="btn small"+(cls?" "+cls:"");x.textContent=label;x.addEventListener("click",fn);act.appendChild(x);return x;};
+    var parts=[fmtSize(o.size)];if(to)parts.push(to);
+    if(mine){
+      var f=myFiles[id];
+      parts.push(f?(f.count?(f.count===1?"1 pessoa baixou":f.count+" pessoas baixaram"):"disponível enquanto você estiver na sala"):"você parou de compartilhar");
+      meta.textContent=parts.join(" · ");
+      if(f)btn("Parar",function(){stopOffer(id);});
+      return;
+    }
+    if(d&&!d.done&&!d.failed){
+      var pct=d.size?Math.floor(d.got*100/d.size):100;
+      parts=[pct+"% de "+fmtSize(o.size)];if(d.speed)parts.push(fmtSize(d.speed)+"/s");
+      meta.textContent=parts.join(" · ");
+      var bar=document.createElement("div");bar.className="fbar";bar.setAttribute("role","progressbar");bar.setAttribute("aria-valuenow",String(pct));bar.setAttribute("aria-valuemin","0");bar.setAttribute("aria-valuemax","100");bar.setAttribute("aria-label","Baixando "+o.name);
+      var fill=document.createElement("i");fill.style.width=pct+"%";bar.appendChild(fill);info.appendChild(bar);
+      btn("Cancelar",function(){if(d.fail)d.fail("cancelado");});
+      return;
+    }
+    if(d&&d.done){
+      parts.push("baixado");meta.textContent=parts.join(" · ");
+      if(d.path){
+        if(!d.risky&&!RISKY.test(d.path))btn("Abrir",function(){api.fileOpenPath(d.path);});
+        btn("Mostrar na pasta",function(){api.fileShow(d.path);});
+        if(/^image\//.test(o.mime)&&o.size<25e6&&!el.parentNode.querySelector(".fprev")){
+          var img=document.createElement("img");img.className="fprev";img.alt=o.name;img.loading="lazy";
+          img.src="file:///"+encodeURI(String(d.path).replace(/\\/g,"/").replace(/^\/+/,"")).replace(/#/g,"%23").replace(/\?/g,"%3F");
+          el.parentNode.appendChild(img);
+        }
+      }else if(d.url){btn("Salvar de novo",function(){var a=document.createElement("a");a.href=d.url;a.download=o.name;a.click();});}
+      return;
+    }
+    var gone=!members[o.from];
+    if(d&&d.failed)parts.push("não baixou: "+d.failed);else if(gone)parts.push("quem mandou saiu da sala");
+    meta.textContent=parts.join(" · ");
+    if(!gone)btn(d&&d.failed?"Tentar de novo":"Baixar",function(){startDownload(id);},"primary");
+  }
+  function filesAfterRoster(){for(var id in offers){if(offers[id].from!==myId&&!members[offers[id].from])renderFileCard(id);}}
+  // ---- jeitos de mandar: clipe, arrastar e soltar, colar ----
+  var fileTarget=null;
+  $("attachBtn").addEventListener("click",function(){fileTarget=null;$("fileInput").value="";$("fileInput").click();});
+  $("fileInput").addEventListener("change",function(){if(this.files&&this.files.length)offerFiles(this.files,fileTarget);fileTarget=null;this.value="";});
+  $("chatInput").addEventListener("paste",function(e){var fs=e.clipboardData&&e.clipboardData.files;if(fs&&fs.length&&inRoom){e.preventDefault();offerFiles(fs,null);}});
+  var dragDepth=0;
+  function hasFiles(e){var t=e.dataTransfer&&e.dataTransfer.types;return !!t&&Array.prototype.indexOf.call(t,"Files")>=0;}
+  document.addEventListener("dragenter",function(e){if(!hasFiles(e))return;e.preventDefault();if(inRoom&&++dragDepth===1)$("dropZone").hidden=false;});
+  document.addEventListener("dragleave",function(e){if(!hasFiles(e))return;if(--dragDepth<=0){dragDepth=0;$("dropZone").hidden=true;}});
+  document.addEventListener("dragover",function(e){if(hasFiles(e)){e.preventDefault();e.dataTransfer.dropEffect=inRoom?"copy":"none";}});
+  document.addEventListener("drop",function(e){if(!hasFiles(e))return;e.preventDefault();dragDepth=0;$("dropZone").hidden=true;if(inRoom&&e.dataTransfer.files.length)offerFiles(e.dataTransfer.files,null);});
+  if(isApp&&api.fileFolder)$("openRecv").addEventListener("click",function(){api.fileFolder();});else $("openRecv").hidden=true;
 
   // ================= REDE LAN DO TÁTÃO =================
   // O anfitrião distribui IPs 10.77.x.x; cada par de PCs com a rede ligada abre um canal direto só pra LAN.

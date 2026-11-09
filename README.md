@@ -23,6 +23,12 @@ O `wintun.dll` não fica no repositório: o build do GitHub Actions baixa a vers
 ## Áudio do PC (Spotify ou qualquer app)
 No painel **Música**, escolha o app (Spotify, navegador…) ou "Todo o som do PC" e clique em **Compartilhar áudio**. Os amigos ouvem em estéreo, com volume próprio. O `tatao-audio.exe` (código em `native/tatao-audio.cpp`, compilado pelo GitHub Actions) usa a captura por processo do Windows 10 2004+/11, então o som do próprio Tátão (as vozes da sala) nunca entra — isso também vale pro som da transmissão de tela.
 
+## Arquivos
+Na **Resenha**, clique no clipe, arraste arquivos pra janela ou cole (Ctrl+V). Pra mandar só pra uma pessoa, use o menu "⋯" dela → "Mandar arquivo só pra essa pessoa".
+- O arquivo vai direto de um PC pro outro (WebRTC, sem servidor e sem limite de tamanho) e fica disponível enquanto quem mandou estiver na sala.
+- Só quem está na sala consegue pedir um arquivo; o anfitrião repassa só o anúncio, nunca o conteúdo.
+- No app, o arquivo é gravado direto no disco em `Downloads\Tátão` (sem sobrescrever nada) e marcado como vindo da internet, então o Windows avisa antes de rodar um programa recebido. O botão "Abrir" não aparece para programas e scripts (.exe, .bat, .ps1…); pra esses só há "Mostrar na pasta".
+
 ## Música: YouTube e Deezer
 Cole no painel **Música** um link de música ou playlist do **YouTube** (inclusive YouTube Music) ou do **Deezer**. Tudo toca no player oficial do YouTube, visível e sincronizado pra sala.
 - Playlist do YouTube: o próprio player oficial abre a lista (sem chave).
