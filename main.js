@@ -1,6 +1,7 @@
 // Tátão — processo principal (Electron)
 // Janela + captura de tela + memória de configs + servidor embutido + AUTO-UPDATE (GitHub Releases).
-const { app, BrowserWindow, session, desktopCapturer, ipcMain, Menu, shell, screen } = require("electron");
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, Menu, shell, screen, dialog } = require("electron");
+const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -460,10 +461,19 @@ async function ytTestKey(k) {
   } catch (e) { return { ok: false, error: "net" }; }
 }
 
-// ---------- arquivos recebidos: gravados direto no disco, em Downloads\Tátão ----------
+// ---------- arquivos: pasta escolhida pela pessoa, gravação por pedaços e compartilhamento ----------
 const xfers = new Map();
 let xferSeq = 0;
-function recvDir() { const d = path.join(app.getPath("downloads"), "Tátão"); fs.mkdirSync(d, { recursive: true }); return d; }
+const FILES_CFG = path.join(app.getPath("userData"), "arquivos.json");
+function filesCfg() { try { return JSON.parse(fs.readFileSync(FILES_CFG, "utf8")) || {}; } catch (_) { return {}; } }
+function defaultRecvDir() { return path.join(app.getPath("downloads"), "Tátão"); }
+function recvDir() {
+  const want = String(filesCfg().dir || "");
+  if (want) { try { fs.mkdirSync(want, { recursive: true }); if (fs.statSync(want).isDirectory()) return want; } catch (_) {} }
+  const d = defaultRecvDir(); fs.mkdirSync(d, { recursive: true }); return d;
+}
+function setRecvDir(d) { const c = filesCfg(); if (d) c.dir = String(d); else delete c.dir; try { fs.writeFileSync(FILES_CFG, JSON.stringify(c, null, 2)); } catch (_) {} }
+function dirInfo() { let d; try { d = recvDir(); } catch (_) { d = defaultRecvDir(); } return { dir: d, isDefault: path.resolve(d) === path.resolve(defaultRecvDir()) }; }
 function safeFileName(n) {
   n = String(n || "arquivo").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 180) || "arquivo";
   if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(n)) n = "_" + n;
@@ -476,8 +486,95 @@ function freePath(dir, name) {
   for (let i = 2; i < 1000; i++) { p = path.join(dir, base + " (" + i + ")" + ext); if (!taken(p)) return p; }
   return path.join(dir, Date.now() + "-" + name);
 }
+const normP = (p) => { const r = path.resolve(String(p)); return process.platform === "win32" ? r.toLowerCase() : r; };
+const knownFiles = new Set(); // arquivos que o Tátão gravou ou está compartilhando (podem ficar fora da pasta atual)
 function insideRecvDir(p) { try { const rel = path.relative(recvDir(), path.resolve(String(p))); return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel); } catch (_) { return false; } }
+function allowedPath(p) { return !!p && (knownFiles.has(normP(p)) || insideRecvDir(p)); }
 const RISKY_EXT = /\.(exe|msi|msix|appx|bat|cmd|com|scr|pif|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|reg|jar|cpl|msc|dll|sys|inf|scf|url|iso|img|vhd|vhdx)$/i;
+// o que dá pra mandar pros outros: só arquivos que a pessoa escolheu (pelo próprio Windows) ou que o Tátão baixou
+const shares = new Map();
+let shareSeq = 0;
+function addShare(p, st) {
+  for (const [sid, s] of shares) if (s.path === p && s.size === st.size && s.mtimeMs === st.mtimeMs) return sid;
+  const sid = "s" + (++shareSeq); shares.set(sid, { path: p, size: st.size, mtimeMs: st.mtimeMs, fh: null, opening: null, last: 0 }); return sid;
+}
+async function shareRead(sid, pos, len) {
+  const s = shares.get(String(sid)); if (!s) throw new Error("indisponivel");
+  pos = Math.floor(+pos); len = Math.floor(+len);
+  if (!(pos >= 0) || !(len >= 0) || len > (64 << 20) || pos + len > s.size) throw new Error("fora do arquivo");
+  if (!s.fh) {
+    if (!s.opening) s.opening = (async () => {
+      const st = await fs.promises.stat(s.path);
+      if (st.size !== s.size || Math.abs(st.mtimeMs - s.mtimeMs) > 2) throw new Error("mudou");
+      return fs.promises.open(s.path, "r");
+    })();
+    try { s.fh = await s.opening; } finally { s.opening = null; }
+  }
+  s.last = Date.now();
+  const buf = Buffer.allocUnsafe(len); let off = 0;
+  while (off < len) { const r = await s.fh.read(buf, off, len - off, pos + off); if (!r.bytesRead) throw new Error("arquivo menor"); off += r.bytesRead; }
+  return buf;
+}
+setInterval(() => { const now = Date.now(); for (const s of shares.values()) if (s.fh && now - s.last > 30000) { const fh = s.fh; s.fh = null; fh.close().catch(() => {}); } }, 15000).unref();
+// biblioteca: arquivos que a pessoa topou compartilhar em cada servidor (voltam a ficar disponíveis quando ela entra)
+const LIB_DIR = path.join(app.getPath("userData"), "biblioteca"), LIB_IDX = path.join(LIB_DIR, "index.json");
+function libLoad() { try { const j = JSON.parse(fs.readFileSync(LIB_IDX, "utf8")); if (j && Array.isArray(j.entries)) return j; } catch (_) {} return { v: 1, entries: [] }; }
+function libSave(j) { try { fs.mkdirSync(LIB_DIR, { recursive: true }); fs.writeFileSync(LIB_IDX + ".tmp", JSON.stringify(j)); fs.renameSync(LIB_IDX + ".tmp", LIB_IDX); } catch (_) {} }
+const isHex = (s, n) => typeof s === "string" && s.length === n && /^[0-9a-f]+$/.test(s);
+const validKey = (k) => typeof k === "string" && /^[a-z0-9-]{1,40}$/.test(k);
+function libDropHashes(j, root) { if (!j.entries.some((e) => e.root === root)) { try { fs.rmSync(path.join(LIB_DIR, root + ".bin"), { force: true }); } catch (_) {} } }
+function libAdd(o) {
+  o = o || {};
+  const s = shares.get(String(o.sid));
+  const size = Math.floor(+o.size), psize = Math.floor(+o.psize);
+  if (!s || !validKey(o.key) || !isHex(o.root, 64) || !/^[0-9a-f]{8,64}$/.test(String(o.id || "")) || size !== s.size) return false;
+  if (!(psize >= 65536 && psize <= (64 << 20) && (psize & (psize - 1)) === 0)) return false;
+  const n = Math.ceil(size / psize), hb = o.hashes;
+  if (!hb || (hb.byteLength || hb.length) !== n * 32) return false;
+  const hbuf = hb.buffer ? Buffer.from(hb.buffer, hb.byteOffset, hb.byteLength) : Buffer.from(hb);
+  if (crypto.createHash("sha256").update(hbuf).digest("hex") !== o.root) return false;
+  try { fs.mkdirSync(LIB_DIR, { recursive: true }); const hp = path.join(LIB_DIR, o.root + ".bin"); if (!fs.existsSync(hp)) fs.writeFileSync(hp, hbuf); } catch (_) { return false; }
+  const j = libLoad();
+  j.entries = j.entries.filter((e) => !(e.key === o.key && e.root === o.root));
+  j.entries.push({ key: o.key, root: o.root, id: String(o.id), name: String(o.name || "arquivo").slice(0, 200), size, mime: String(o.mime || "").slice(0, 100), psize,
+    kind: o.kind === "sent" ? "sent" : "got", path: s.path, mtimeMs: s.mtimeMs, ts: Date.now() });
+  const mine = j.entries.filter((e) => e.key === o.key);
+  if (mine.length > 300) { const drop = mine.sort((a, b) => a.ts - b.ts).slice(0, mine.length - 300); j.entries = j.entries.filter((e) => !drop.includes(e)); drop.forEach((e) => libDropHashes(j, e.root)); }
+  knownFiles.add(normP(s.path)); libSave(j); return true;
+}
+function libList(key) {
+  if (!validKey(key)) return [];
+  const j = libLoad(), out = [], gone = [];
+  for (const e of j.entries) {
+    if (e.key !== key) continue;
+    let st = null; try { st = fs.statSync(e.path); } catch (_) {}
+    if (!st || !st.isFile() || st.size !== e.size || Math.abs(st.mtimeMs - e.mtimeMs) > 2) { gone.push(e); continue; }
+    knownFiles.add(normP(e.path));
+    out.push({ root: e.root, id: e.id, name: e.name, size: e.size, mime: e.mime, psize: e.psize, kind: e.kind, ts: e.ts, sid: addShare(e.path, st), path: e.path });
+  }
+  if (gone.length) { j.entries = j.entries.filter((e) => !gone.includes(e)); gone.forEach((e) => libDropHashes(j, e.root)); libSave(j); }
+  return out;
+}
+function libRemove(key, root, kind) {
+  if (!validKey(key)) return false;
+  const j = libLoad(), drop = j.entries.filter((e) => e.key === key && (!root || e.root === root) && (!kind || e.kind === kind));
+  if (!drop.length) return false;
+  j.entries = j.entries.filter((e) => !drop.includes(e)); drop.forEach((e) => libDropHashes(j, e.root)); libSave(j); return true;
+}
+function libKeys() { const out = {}; for (const e of libLoad().entries) { const k = out[e.key] || (out[e.key] = { n: 0, bytes: 0 }); k.n++; k.bytes += e.size; } return out; }
+
+// ---------- identidade: o código de amigo vem de uma chave criada neste PC (ninguém consegue se passar por você) ----------
+const ID_FILE = path.join(app.getPath("userData"), "identidade.json");
+let ident = null;
+function identity() {
+  if (ident) return ident;
+  try { const j = JSON.parse(fs.readFileSync(ID_FILE, "utf8")); ident = { key: crypto.createPrivateKey(j.priv), pub: String(j.pub) }; return ident; } catch (_) {}
+  const kp = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const pub = kp.publicKey.export({ type: "spki", format: "der" }).toString("base64");
+  const priv = kp.privateKey.export({ type: "pkcs8", format: "pem" });
+  try { fs.writeFileSync(ID_FILE, JSON.stringify({ v: 1, pub, priv }), { mode: 0o600 }); } catch (_) {}
+  ident = { key: kp.privateKey, pub }; return ident;
+}
 
 // ---------- servidor de sinalização embutido (tipo Radmin) ----------
 function startPeerServer(port) {
@@ -712,6 +809,7 @@ function createWindow() {
   const queueSave = () => { if (winMode !== "full") return; clearTimeout(stTimer); stTimer = setTimeout(saveWinState, 400); };
   win.on("resize", queueSave); win.on("move", queueSave);
   win.on("close", saveWinState);
+  win.on("focus", () => { try { win.flashFrame(false); } catch (_) {} });
   // links externos abrem no navegador, não numa janela do app
   win.webContents.on("will-navigate", (e, url) => { if (!/sala-lan\.html/.test(String(url))) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
@@ -773,39 +871,72 @@ ipcMain.on("lan:out", (_e, buf) => { try { lanWrite(buf); } catch (_) {} });
 ipcMain.handle("file:open", (_e, o) => {
   try {
     const final = freePath(recvDir(), safeFileName(o && o.name));
-    const tmp = final + ".part", ws = fs.createWriteStream(tmp), id = ++xferSeq;
-    const x = { ws, tmp, final, bytes: 0, size: Math.max(0, +(o && o.size) || 0), err: null };
-    ws.on("error", (e) => { x.err = String((e && e.message) || e); });
-    xfers.set(id, x);
+    const tmp = final + ".part", fd = fs.openSync(tmp, "w"), id = ++xferSeq;
+    xfers.set(id, { fd, tmp, final, size: Math.max(0, Math.floor(+(o && o.size) || 0)), written: 0, pending: 0, err: null, waiters: [] });
     return { ok: true, id, name: path.basename(final) };
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 });
-ipcMain.on("file:write", (_e, id, buf) => {
+// cada pedaço já conferido é gravado no lugar dele (podem chegar fora de ordem, de pessoas diferentes)
+ipcMain.on("file:writeAt", (_e, id, pos, buf) => {
   const x = xfers.get(id); if (!x || x.err || !buf) return;
-  x.bytes += buf.length;
-  if (x.bytes > x.size) { x.err = "veio mais do que o tamanho combinado"; return; }
-  x.ws.write(buf.buffer ? Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength) : Buffer.from(buf));
+  const len = buf.byteLength != null ? buf.byteLength : buf.length; pos = Math.floor(+pos);
+  if (!(pos >= 0) || pos + len > x.size) { x.err = "pedaço fora do tamanho combinado"; return; }
+  const b = buf.buffer ? Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength) : Buffer.from(buf);
+  x.pending++;
+  fs.write(x.fd, b, 0, b.length, pos, (err, n) => {
+    x.pending--; if (err) x.err = String(err.message || err); else x.written += n;
+    if (!x.pending) { const w = x.waiters; x.waiters = []; w.forEach((f) => f()); }
+  });
 });
 ipcMain.handle("file:close", (_e, id, ok) => new Promise((resolve) => {
   const x = xfers.get(id); if (!x) { resolve({ ok: false, error: "sem arquivo" }); return; }
   xfers.delete(id);
-  x.ws.end(() => {
-    if (!ok || x.err || x.bytes !== x.size) { fs.rm(x.tmp, { force: true }, () => resolve({ ok: false, error: x.err || (ok ? "arquivo incompleto" : "cancelado") })); return; }
+  const fin = () => fs.close(x.fd, () => {
+    if (!ok || x.err || x.written !== x.size) { fs.rm(x.tmp, { force: true }, () => resolve({ ok: false, error: x.err || (ok ? "arquivo incompleto" : "cancelado") })); return; }
     try {
       const final = fs.existsSync(x.final) ? freePath(path.dirname(x.final), path.basename(x.final)) : x.final;
       fs.renameSync(x.tmp, final);
       // marca como vindo da internet: o Windows avisa antes de abrir programas recebidos
       if (process.platform === "win32") { try { fs.writeFileSync(final + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n"); } catch (_) {} }
-      resolve({ ok: true, path: final, name: path.basename(final), risky: RISKY_EXT.test(final) });
+      knownFiles.add(normP(final));
+      const st = fs.statSync(final);
+      resolve({ ok: true, path: final, name: path.basename(final), risky: RISKY_EXT.test(final), sid: addShare(final, st) });
     } catch (e) { resolve({ ok: false, error: String((e && e.message) || e) }); }
   });
+  if (x.pending) x.waiters.push(fin); else fin();
 }));
-ipcMain.handle("file:show", (_e, p) => { if (!insideRecvDir(p)) return false; shell.showItemInFolder(String(p)); return true; });
+ipcMain.handle("file:show", (_e, p) => { if (!allowedPath(p)) return false; shell.showItemInFolder(String(p)); return true; });
 ipcMain.handle("file:open-path", async (_e, p) => {
-  if (!insideRecvDir(p) || RISKY_EXT.test(String(p))) return "bloqueado";
+  if (!allowedPath(p) || RISKY_EXT.test(String(p))) return "bloqueado";
   return shell.openPath(String(p));
 });
 ipcMain.handle("file:folder", () => { const d = recvDir(); shell.openPath(d); return d; });
+ipcMain.handle("file:getDir", () => dirInfo());
+ipcMain.handle("file:pickDir", async () => {
+  const r = await dialog.showOpenDialog(win, { title: "Onde salvar os arquivos recebidos", defaultPath: dirInfo().dir, buttonLabel: "Usar esta pasta",
+    properties: ["openDirectory", "createDirectory", "dontAddToRecent"] });
+  if (!r || r.canceled || !r.filePaths || !r.filePaths[0]) return null;
+  try { fs.mkdirSync(r.filePaths[0], { recursive: true }); fs.accessSync(r.filePaths[0], fs.constants.W_OK); } catch (_) { return { error: "Não dá pra salvar nessa pasta." }; }
+  setRecvDir(r.filePaths[0]); return dirInfo();
+});
+ipcMain.handle("file:resetDir", () => { setRecvDir(null); return dirInfo(); });
+// o caminho vem do próprio arquivo escolhido (pelo preload), nunca de texto da página
+ipcMain.handle("file:reg", async (_e, p) => {
+  try { p = String(p || ""); if (!p || !path.isAbsolute(p)) return null; const st = await fs.promises.stat(p); if (!st.isFile()) return null; return { sid: addShare(p, st), size: st.size }; } catch (_) { return null; }
+});
+ipcMain.handle("file:read", async (_e, sid, pos, len) => { try { return await shareRead(sid, pos, len); } catch (e) { return { error: String((e && e.message) || e) }; } });
+ipcMain.handle("file:unshare", (_e, sid) => { const s = shares.get(String(sid)); if (s) { if (s.fh) s.fh.close().catch(() => {}); shares.delete(String(sid)); } return true; });
+ipcMain.handle("lib:add", (_e, o) => libAdd(o));
+ipcMain.handle("lib:list", (_e, key) => libList(key));
+ipcMain.handle("lib:hashes", (_e, root) => { if (!isHex(root, 64)) return null; try { return fs.readFileSync(path.join(LIB_DIR, root + ".bin")); } catch (_) { return null; } });
+ipcMain.handle("lib:remove", (_e, key, root, kind) => libRemove(key, root && isHex(root, 64) ? root : null, kind === "got" || kind === "sent" ? kind : null));
+ipcMain.handle("lib:keys", () => libKeys());
+ipcMain.handle("id:get", () => ({ pub: identity().pub }));
+ipcMain.handle("id:sign", (_e, txt) => {
+  const s = String(txt || ""); if (!/^tatao-pres\|/.test(s) || s.length > 300) return null; // só assina o desafio dos amigos
+  return crypto.sign("sha256", Buffer.from(s, "utf8"), { key: identity().key, dsaEncoding: "ieee-p1363" }).toString("base64");
+});
+ipcMain.on("win:attention", () => { try { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); } catch (_) {} });
 ipcMain.handle("music:resolve", (_e, url) => deezerResolve(url).catch((e) => ({ ok: false, error: "Não consegui falar com o Deezer agora." })));
 ipcMain.handle("music:search", (_e, o) => ytSearch(o).catch(() => ({ ok: false, error: "net" })));
 ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), app: !!String(appKeys().ytKey || "").trim() }));

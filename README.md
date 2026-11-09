@@ -23,11 +23,20 @@ O `wintun.dll` não fica no repositório: o build do GitHub Actions baixa a vers
 ## Áudio do PC (Spotify ou qualquer app)
 No painel **Música**, escolha o app (Spotify, navegador…) ou "Todo o som do PC" e clique em **Compartilhar áudio**. Os amigos ouvem em estéreo, com volume próprio. O `tatao-audio.exe` (código em `native/tatao-audio.cpp`, compilado pelo GitHub Actions) usa a captura por processo do Windows 10 2004+/11, então o som do próprio Tátão (as vozes da sala) nunca entra — isso também vale pro som da transmissão de tela.
 
-## Arquivos
+## Servidores, amigos e chamada
+Na tela inicial:
+- **Servidores**: crie um servidor (nome, código e senha) e mande o **convite** (`tatao:…`) pros amigos; quem colar em **Colar convite** ganha o servidor salvo. Cada servidor mostra se está online e quantas pessoas tem (a contagem só aparece pra quem tem a senha certa). Qualquer um da turma abre o servidor: quem entrar primeiro vira o anfitrião, e se o anfitrião sair, quem ficou reabre sozinho em poucos segundos.
+- **Seu código de amigo** (ex.: `Paulo#K7Q2MX`) fica embaixo do seu nome. O nome pode repetir; o código vem de uma chave criada no seu PC (`identidade.json` na pasta de dados do app), então ninguém consegue se passar por você.
+- **Amigos**: adicione pelo código ou pelo menu "⋯" de quem estiver na sala. O outro precisa aceitar. A lista mostra quem está com o Tátão aberto.
+- **Chamar**: chama um amigo pro servidor (toca o som de chamada); ele escolhe Entrar ou Recusar. Dentro da sala, use "Chamar amigo".
+
+## Arquivos (estilo torrent)
 Na **Resenha**, clique no clipe, arraste arquivos pra janela ou cole (Ctrl+V). Pra mandar só pra uma pessoa, use o menu "⋯" dela → "Mandar arquivo só pra essa pessoa".
-- O arquivo vai direto de um PC pro outro (WebRTC, sem servidor e sem limite de tamanho) e fica disponível enquanto quem mandou estiver na sala.
-- Só quem está na sala consegue pedir um arquivo; o anfitrião repassa só o anúncio, nunca o conteúdo.
-- No app, o arquivo é gravado direto no disco em `Downloads\Tátão` (sem sobrescrever nada) e marcado como vindo da internet, então o Windows avisa antes de rodar um programa recebido. O botão "Abrir" não aparece para programas e scripts (.exe, .bat, .ps1…); pra esses só há "Mostrar na pasta".
+- Quem manda gera uma impressão digital (SHA-256) de cada pedaço. Quem baixa pega pedaços de até 4 pessoas ao mesmo tempo e confere cada um antes de gravar; pedaço diferente é descartado e quem mandou ele deixa de ser usado.
+- Depois de baixar, o app pergunta **"Ajudar a compartilhar?"**. A escolha vale por servidor ("Lembrar minha escolha neste servidor") e muda em Ajustes → Arquivos. Quem compartilha serve o arquivo enquanto estiver no servidor, mesmo que quem mandou já tenha saído. Os arquivos compartilhados ficam numa biblioteca (`biblioteca/` na pasta de dados) e voltam a ficar disponíveis quando a pessoa entra de novo no servidor. Quem chega depois recebe a lista dos arquivos disponíveis.
+- Arquivos privados nunca são compartilhados por quem recebe.
+- Os arquivos vão direto pra pasta escolhida em **Ajustes → Arquivos** (padrão `Downloads\Tátão`), sem perguntar e sem sobrescrever nada, e são marcados como vindos da internet: o Windows avisa antes de rodar um programa recebido. O botão "Abrir" não aparece para programas e scripts (.exe, .bat, .ps1…).
+- Só quem está na sala consegue pedir um arquivo; o anfitrião repassa só os anúncios, nunca o conteúdo.
 
 ## Música: YouTube e Deezer
 Cole no painel **Música** um link de música ou playlist do **YouTube** (inclusive YouTube Music) ou do **Deezer**. Tudo toca no player oficial do YouTube, visível e sincronizado pra sala.

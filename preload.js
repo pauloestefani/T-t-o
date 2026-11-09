@@ -1,5 +1,5 @@
 // Ponte segura entre o app (HTML) e o processo principal.
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: true,
@@ -39,11 +39,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
   appReady: () => ipcRenderer.send("app:ready"),
   isAdmin: () => ipcRenderer.invoke("app:isAdmin"),
   fileOpen: (o) => ipcRenderer.invoke("file:open", o),
-  fileWrite: (id, u8) => ipcRenderer.send("file:write", id, u8),
+  fileWriteAt: (id, pos, u8) => ipcRenderer.send("file:writeAt", id, pos, u8),
   fileClose: (id, ok) => ipcRenderer.invoke("file:close", id, ok),
   fileShow: (p) => ipcRenderer.invoke("file:show", p),
   fileOpenPath: (p) => ipcRenderer.invoke("file:open-path", p),
   fileFolder: () => ipcRenderer.invoke("file:folder"),
+  fileGetDir: () => ipcRenderer.invoke("file:getDir"),
+  filePickDir: () => ipcRenderer.invoke("file:pickDir"),
+  fileResetDir: () => ipcRenderer.invoke("file:resetDir"),
+  // só arquivos de verdade escolhidos pela pessoa têm caminho (um File criado pela página não tem)
+  fileReg: (file) => { let p = ""; try { p = webUtils.getPathForFile(file); } catch (_) {} return p ? ipcRenderer.invoke("file:reg", p) : Promise.resolve(null); },
+  fileRead: (sid, pos, len) => ipcRenderer.invoke("file:read", sid, pos, len),
+  fileUnshare: (sid) => ipcRenderer.invoke("file:unshare", sid),
+  libAdd: (o) => ipcRenderer.invoke("lib:add", o),
+  libList: (key) => ipcRenderer.invoke("lib:list", key),
+  libHashes: (root) => ipcRenderer.invoke("lib:hashes", root),
+  libRemove: (key, root, kind) => ipcRenderer.invoke("lib:remove", key, root, kind),
+  libKeys: () => ipcRenderer.invoke("lib:keys"),
+  idGet: () => ipcRenderer.invoke("id:get"),
+  idSign: (txt) => ipcRenderer.invoke("id:sign", txt),
+  attention: () => ipcRenderer.send("win:attention"),
   setAlwaysAdmin: (on) => ipcRenderer.invoke("app:setAlwaysAdmin", on),
   elevate: () => ipcRenderer.invoke("app:elevate"),
   musicResolve: (url) => ipcRenderer.invoke("music:resolve", url),
