@@ -144,6 +144,7 @@ async function configureLanIp(ip, mask) {
 const MC_GROUP = "224.0.2.60", MC_PORT = 4445;
 let mcSock = null, mcLast = {}, mcJoined = new Set();
 const mcMinePorts = new Map(); // portas de mundos abertos NESTE PC (só elas podem ser usadas pelo túnel)
+const mcManualPorts = new Set(); // portas que a própria pessoa escolheu compartilhar na aba LAN
 function localIps() { const out = new Set(["127.0.0.1"]); const ifs = os.networkInterfaces(); for (const k in ifs) for (const a of ifs[k]) if (a.family === "IPv4" || a.family === 4) out.add(a.address); return out; }
 function mcListenStart() {
   if (mcSock) return;
@@ -194,10 +195,11 @@ ipcMain.handle("tun:listen", (_e, key, want) => {
   });
 });
 ipcMain.handle("tun:unlisten", (_e, key) => { const t = tunServers.get(String(key)); if (t) { tunServers.delete(String(key)); tunLocalPorts.delete(t.port); try { t.srv.close(); } catch (_) {} } return true; });
+ipcMain.on("mc:share", (_e, port, on) => { port = Math.floor(+port); if (!(port > 0 && port < 65536)) return; if (on) mcManualPorts.add(port); else mcManualPorts.delete(port); });
 ipcMain.handle("tun:connect", (_e, port) => {
   port = Math.floor(+port);
   const seen = mcMinePorts.get(port);
-  if (!seen || Date.now() - seen > 60000) return { ok: false, error: "esse mundo não está aberto neste PC" };
+  if (!mcManualPorts.has(port) && (!seen || Date.now() - seen > 60000)) return { ok: false, error: "esse jogo não está aberto neste PC" };
   return new Promise((res) => {
     const sock = net.connect({ host: "127.0.0.1", port }), id = ++tunSeq;
     sock.once("connect", () => { sock.removeAllListeners("error"); tunAttach(id, sock); res({ ok: true, id }); });
@@ -207,7 +209,7 @@ ipcMain.handle("tun:connect", (_e, port) => {
 ipcMain.on("tun:write", (_e, id, buf) => { const s = tunSocks.get(id); if (s && buf) { try { s.write(buf.buffer ? Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength) : Buffer.from(buf)); } catch (_) {} } });
 ipcMain.on("tun:pause", (_e, id, on) => { const s = tunSocks.get(id); if (s) { if (on) s.pause(); else s.resume(); } });
 ipcMain.on("tun:end", (_e, id) => { const s = tunSocks.get(id); if (s) { tunSocks.delete(id); try { s.destroy(); } catch (_) {} } });
-function tunCloseAll() { for (const s of tunSocks.values()) { try { s.destroy(); } catch (_) {} } tunSocks.clear(); for (const t of tunServers.values()) { try { t.srv.close(); } catch (_) {} } tunServers.clear(); tunLocalPorts.clear(); }
+function tunCloseAll() { mcManualPorts.clear(); for (const s of tunSocks.values()) { try { s.destroy(); } catch (_) {} } tunSocks.clear(); for (const t of tunServers.values()) { try { t.srv.close(); } catch (_) {} } tunServers.clear(); tunLocalPorts.clear(); }
 function loadLanApi(dll) {
   if (lanApi) return lanApi;
   const koffi = require("koffi");

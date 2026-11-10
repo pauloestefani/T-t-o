@@ -420,6 +420,10 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 .shrow:first-child{margin-top:8px}
 .shrow .shname{flex:1 1 150px;min-width:0}.shrow .shname b{display:block;font-size:14px;font-weight:600}.shrow .shname span{font-size:12px;color:var(--t-muted)}
 .shrow select{width:auto;min-width:190px;flex:0 1 auto}
+.mcshare{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.mcshare .control{margin:0;flex:1 1 120px;min-width:0}
+.mcshare .control:first-child{flex:0 1 120px}
+.mcshare .btn{min-height:42px}
 /* ---------- rede LAN ---------- */
 .device{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--t-border);padding:13px 0}
 .device:last-child{border-bottom:0}
@@ -810,9 +814,17 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
             <div class="note">Funciona como o Radmin: cada pessoa da sala que ligar a rede ganha um IP <b>10.77.x.x</b> e todos ficam na mesma LAN. Os pacotes do jogo vão direto de PC pra PC, criptografados, sem servidor no meio. No jogo, crie ou procure a partida em <b>LAN</b>; se ele pedir o IP do anfitrião, use o IP que aparece ao lado do nome dele. Mundos do Minecraft abertos pra LAN aparecem aqui embaixo com o endereço pronto pra copiar.</div>
           </div>
           <div class="panel" id="mcPanel" hidden>
-            <h2>Mundos abertos na rede</h2>
+            <h2>Jogos abertos pela sala</h2>
             <div class="hublist" id="mcList"></div>
             <p class="muted" style="margin:12px 0 0">Minecraft: vá em <b>Multijogador → Conexão direta</b> e cole o endereço. O Tátão leva a conexão até quem abriu o mundo pela própria sala, então funciona mesmo com a rede LAN desligada ou com o firewall bloqueando.</p>
+            <h3 class="subh">Compartilhar um jogo aberto neste PC</h3>
+            <p class="muted">Use quando o mundo não aparecer aqui sozinho. No Minecraft, a porta aparece no chat quando você abre pra LAN (ou é a que você escolheu).</p>
+            <form class="mcshare" id="mcShareForm">
+              <div class="control"><label for="mcPort">Porta</label><input id="mcPort" type="number" min="1" max="65535" placeholder="ex: 1111" inputmode="numeric"></div>
+              <div class="control"><label for="mcName">Nome <span class="opt">(opcional)</span></label><input id="mcName" type="text" maxlength="40" placeholder="Minecraft" autocomplete="off"></div>
+              <button class="btn primary" type="submit" id="mcShareBtn">Compartilhar</button>
+            </form>
+            <div class="err" id="mcShareErr" role="alert"></div>
           </div>
           <div class="panel">
             <h2>Outras redes neste PC</h2>
@@ -920,7 +932,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.16.2";
+  var APP_VERSION="1.16.3";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -1381,7 +1393,8 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
       rejoinTries=0;
     }else if(msg.t==="mcw"){
       var mfrom=isHost?conn.peer:String(msg.from||"");if(isHost)fileRelay(msg,mfrom);
-      mcFriendSeen(mfrom,Math.floor(+msg.port),mcClean(msg.motd));
+      if(msg.off){var mk=mfrom+":"+Math.floor(+msg.port);if(mcWorlds[mk]){delete mcWorlds[mk];if(tunOK)api.tunUnlisten(mk);renderMc();}}
+      else mcFriendSeen(mfrom,Math.floor(+msg.port),mcClean(msg.motd),!!msg.m);
     }else if(msg.t==="file"||msg.t==="fhave"||msg.t==="fdrop"||msg.t==="fcat"){
       onFileMsg(conn,msg);
     }else if(msg.t==="chat"){
@@ -1727,6 +1740,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     renderComputers();lanUI();loadYT();renderPcListen();if(pcAvail)pcRefreshList();startPings();if(isHost)refreshKeyInfo();
     presBroadcast({t:"st",room:1,name:myDisplayName()});renderShareSettings();
     if(isApp&&api.mcWatch)api.mcWatch(true); // percebe quando um mundo do Minecraft é aberto neste PC
+    renderMc();
   }
   function fatal(e){
     var msg=(e&&e.message)||String(e);
@@ -3231,19 +3245,20 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   function mcMineSeen(port,motd){
     if(!inRoom||!(port>0&&port<65536))return;
     var now=Date.now(),w=mcMine[port];
+    if(w&&w.manual){w.auto=now;return;} // já está compartilhado na mão
     if(!w)sysMsg("Seu mundo “"+motd+"” do Minecraft está aberto. Os amigos da sala recebem um endereço pra entrar pelo Tátão (sem precisar de firewall nem VPN).");
     mcMine[port]={motd:motd,t:now,sent:w?w.sent:0};
     if(now-mcMine[port].sent>8000){mcMine[port].sent=now;sendRoom({t:"mcw",port:port,motd:motd});}
     renderMc();
   }
-  function mcFriendSeen(pid,port,motd){
+  function mcFriendSeen(pid,port,motd,manual){
     var m=members[pid];if(!inRoom||!m||pid===myId||!(port>0&&port<65536))return;
     var k=pid+":"+port,w=mcWorlds[k],isNew=!w;
     if(!w)w=mcWorlds[k]={pid:pid,port:port,local:null};
     w.motd=motd;w.t=Date.now();
     if(isNew){
       playSnd("msg");
-      var tell=function(){sysMsg(m.name+" abriu o mundo “"+motd+"” do Minecraft. Pra entrar: Multijogador → Conexão direta → "+mcAddr(w)+(w.local?" (o Tátão leva a conexão até "+m.name+")":""));};
+      var tell=function(){sysMsg((manual?m.name+" compartilhou “"+motd+"” (porta "+port+")":m.name+" abriu o mundo “"+motd+"” do Minecraft")+". Pra entrar: Multijogador → Conexão direta → "+mcAddr(w)+(w.local?" (o Tátão leva a conexão até "+m.name+")":""));};
       // o Tátão abre uma porta só neste PC (127.0.0.1) que leva até o Minecraft de quem abriu o mundo
       if(tunOK)api.tunListen(k,port).then(function(r){if(r&&r.ok&&mcWorlds[k]===w)w.local=r.port;tell();renderMc();},function(){tell();});
       else tell();
@@ -3254,15 +3269,39 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   function renderMc(){
     var box=$("mcList");if(!box)return;var now=Date.now(),any=false;box.innerHTML="";
     var add=function(who,avKey,motd,sub,copy){any=true;var row=hrow(avKey,"MC",who+" · “"+motd+"”",sub,"on");row.classList.add("srv");
-      if(copy)rowBtn(row,"Copiar",function(){copyText(copy,this);},false,"copy");box.appendChild(row);};
-    for(var p in mcMine){if(now-mcMine[p].t>25000){delete mcMine[p];continue;}add("Você",myId,mcMine[p].motd,"Os amigos da sala entram pelo Tátão"+(lanActive&&myVip?" · LAN: "+myVip+":"+p:""),null);}
+      if(copy)rowBtn(row,"Copiar",function(){copyText(copy,this);},false,"copy");box.appendChild(row);return row;};
+    for(var p in mcMine){
+      var mw=mcMine[p];if(!mw.manual&&now-mw.t>25000){delete mcMine[p];continue;}
+      var row0=add("Você",myId,mw.motd+(mw.manual?" (porta "+p+")":""),"Os amigos da sala entram pelo Tátão"+(lanActive&&myVip?" · LAN: "+myVip+":"+p:""),null);
+      if(mw.manual)(function(pp){rowBtn(row0,"Parar",function(){mcUnshare(pp);});})(+p);
+    }
     for(var k in mcWorlds){
       var w=mcWorlds[k],m=members[w.pid];
       if(now-w.t>25000||!m){delete mcWorlds[k];if(tunOK)api.tunUnlisten(k);continue;}
       var addr=mcAddr(w);add(m.name,w.pid,w.motd,"Conexão direta: "+addr,/:\d+$/.test(addr)?addr:null);
     }
-    $("mcPanel").hidden=!any;
+    if(!any)box.innerHTML='<div class="hempty">Nenhum jogo aberto agora. Quando alguém da sala abrir um mundo do Minecraft pra LAN, ele aparece aqui com o endereço.</div>';
+    $("mcPanel").hidden=!(any||(tunOK&&inRoom));
   }
+  // compartilhar na mão: a própria pessoa diz qual porta do PC dela os amigos podem usar pelo túnel
+  function mcShareManual(port,name){
+    if(!tunOK||!inRoom)return;
+    api.mcShare(port,true);
+    var was=mcMine[port];mcMine[port]={motd:name,t:Date.now(),sent:0,manual:true};
+    if(!was)sysMsg("Você compartilhou “"+name+"” (porta "+port+") pela sala. Os amigos recebem um endereço pra Conexão direta.");
+    mcShareTick();renderMc();
+  }
+  function mcUnshare(port){
+    var w=mcMine[port];if(!w)return;delete mcMine[port];if(tunOK)api.mcShare(port,false);
+    sendRoom({t:"mcw",port:port,motd:w.motd,off:1});renderMc();
+  }
+  function mcShareTick(){var now=Date.now();for(var p in mcMine){var w=mcMine[p];if(w.manual&&now-w.sent>8000){w.sent=now;sendRoom({t:"mcw",port:+p,motd:w.motd,m:1});}}}
+  setInterval(mcShareTick,4000);
+  $("mcShareForm").addEventListener("submit",function(e){
+    e.preventDefault();var port=Math.floor(+$("mcPort").value),err=$("mcShareErr");err.textContent="";
+    if(!(port>0&&port<65536)){err.textContent="Digite a porta do jogo (um número de 1 a 65535).";$("mcPort").focus();return;}
+    mcShareManual(port,mcClean($("mcName").value||"Minecraft"));$("mcPort").value="";$("mcName").value="";
+  });
   setInterval(function(){if(Object.keys(mcMine).length||Object.keys(mcWorlds).length)renderMc();},5000);
   // ---- túnel: os bytes do Minecraft vão pela conexão da sala ----
   var tunConns={};

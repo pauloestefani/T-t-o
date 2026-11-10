@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onLanStatus: (cb) => ipcRenderer.on("lan:status", (_e, d) => cb(d)),
   onMcWorld: (cb) => ipcRenderer.on("lan:mcworld", (_e, d) => cb(d)),
   mcWatch: (on) => ipcRenderer.send("mc:watch", !!on),
+  mcShare: (port, on) => ipcRenderer.send("mc:share", port, !!on),
   tunListen: (key, port) => ipcRenderer.invoke("tun:listen", key, port),
   tunUnlisten: (key) => ipcRenderer.invoke("tun:unlisten", key),
   tunConnect: (port) => ipcRenderer.invoke("tun:connect", port),
