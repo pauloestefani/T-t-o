@@ -142,7 +142,8 @@ async function configureLanIp(ip, mask) {
 // ---------- Minecraft: percebe quando um mundo é aberto pra LAN neste PC ----------
 // O Minecraft (Java) avisa a cada 1,5 s em 224.0.2.60:4445: "[MOTD]nome[/MOTD][AD]porta[/AD]".
 const MC_GROUP = "224.0.2.60", MC_PORT = 4445;
-let mcSock = null, mcLast = {};
+let mcSock = null, mcLast = {}, mcJoined = new Set();
+const mcMinePorts = new Map(); // portas de mundos abertos NESTE PC (só elas podem ser usadas pelo túnel)
 function localIps() { const out = new Set(["127.0.0.1"]); const ifs = os.networkInterfaces(); for (const k in ifs) for (const a of ifs[k]) if (a.family === "IPv4" || a.family === 4) out.add(a.address); return out; }
 function mcListenStart() {
   if (mcSock) return;
@@ -154,16 +155,59 @@ function mcListenStart() {
     const m = /\[MOTD\]([\s\S]{0,200}?)\[\/MOTD\]\[AD\](\d{1,5})\[\/AD\]/.exec(msg.toString("utf8"));
     if (!m) return;
     const port = +m[2]; if (!(port > 0 && port < 65536)) return;
-    const mine = localIps().has(rinfo.address), key = (mine ? "eu" : rinfo.address) + ":" + port, now = Date.now();
+    const mine = localIps().has(rinfo.address) && !tunLocalPorts.has(port), key = (mine ? "eu" : rinfo.address) + ":" + port, now = Date.now();
+    if (mine) mcMinePorts.set(port, now);
     if (now - (mcLast[key] || 0) < 4000) return; mcLast[key] = now;
     send("lan:mcworld", { port, motd: m[1], mine, from: mine ? null : rinfo.address });
   });
-  s.bind(MC_PORT, () => {
-    try { s.setMulticastLoopback(true); } catch (_) {}
-    for (const ip of localIps()) { try { s.addMembership(MC_GROUP, ip); } catch (_) {} }
-  });
+  s.bind(MC_PORT, () => { try { s.setMulticastLoopback(true); } catch (_) {} mcRefresh(); });
 }
-function mcListenStop() { const s = mcSock; mcSock = null; mcLast = {}; if (s) { try { s.close(); } catch (_) {} } }
+// entra no grupo em toda placa nova (ex.: a do Tátão, quando a rede LAN liga)
+function mcRefresh() { if (!mcSock) return; for (const ip of localIps()) { if (mcJoined.has(ip)) continue; try { mcSock.addMembership(MC_GROUP, ip); mcJoined.add(ip); } catch (_) {} } }
+function mcListenStop() { const s = mcSock; mcSock = null; mcLast = {}; mcJoined = new Set(); if (s) { try { s.close(); } catch (_) {} } }
+let mcWatchRoom = false;
+ipcMain.on("mc:watch", (_e, on) => {
+  if (!app.isPackaged && process.env.TATAO_NO_MC) return; // só em teste: dois apps no mesmo PC
+  mcWatchRoom = !!on; if (mcWatchRoom || lan.running) mcListenStart(); else mcListenStop();
+});
+
+// ---------- Túnel do Tátão: o Minecraft do amigo entra por localhost e a conversa passa pela conexão da sala ----------
+// (sem firewall, sem rede LAN e sem VPN no meio). Quem abriu o mundo só aceita ligar pra portas de mundos abertos neste PC.
+const tunSocks = new Map(), tunServers = new Map(), tunLocalPorts = new Set();
+let tunSeq = 0;
+function tunAttach(id, sock) {
+  tunSocks.set(id, sock); sock.setNoDelay(true); sock.pause();
+  sock.on("data", (d) => send("tun:data", id, d));
+  sock.on("close", () => { if (tunSocks.get(id) === sock) { tunSocks.delete(id); send("tun:close", id); } });
+  sock.on("error", () => {});
+}
+ipcMain.handle("tun:listen", (_e, key, want) => {
+  key = String(key || "").slice(0, 100); want = Math.floor(+want) || 0;
+  const cur = tunServers.get(key); if (cur) return { ok: true, port: cur.port };
+  return new Promise((res) => {
+    const srv = net.createServer((sock) => { const id = ++tunSeq; tunAttach(id, sock); send("tun:incoming", key, id); });
+    const go = (p) => {
+      srv.once("error", (e) => { if (p) go(0); else res({ ok: false, error: String((e && e.message) || e) }); });
+      srv.listen(p, "127.0.0.1", () => { const port = srv.address().port; tunServers.set(key, { srv, port }); tunLocalPorts.add(port); res({ ok: true, port }); });
+    };
+    go(want > 1024 && want < 65536 ? want : 0);
+  });
+});
+ipcMain.handle("tun:unlisten", (_e, key) => { const t = tunServers.get(String(key)); if (t) { tunServers.delete(String(key)); tunLocalPorts.delete(t.port); try { t.srv.close(); } catch (_) {} } return true; });
+ipcMain.handle("tun:connect", (_e, port) => {
+  port = Math.floor(+port);
+  const seen = mcMinePorts.get(port);
+  if (!seen || Date.now() - seen > 60000) return { ok: false, error: "esse mundo não está aberto neste PC" };
+  return new Promise((res) => {
+    const sock = net.connect({ host: "127.0.0.1", port }), id = ++tunSeq;
+    sock.once("connect", () => { sock.removeAllListeners("error"); tunAttach(id, sock); res({ ok: true, id }); });
+    sock.once("error", (e) => res({ ok: false, error: String((e && e.message) || e) }));
+  });
+});
+ipcMain.on("tun:write", (_e, id, buf) => { const s = tunSocks.get(id); if (s && buf) { try { s.write(buf.buffer ? Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength) : Buffer.from(buf)); } catch (_) {} } });
+ipcMain.on("tun:pause", (_e, id, on) => { const s = tunSocks.get(id); if (s) { if (on) s.pause(); else s.resume(); } });
+ipcMain.on("tun:end", (_e, id) => { const s = tunSocks.get(id); if (s) { tunSocks.delete(id); try { s.destroy(); } catch (_) {} } });
+function tunCloseAll() { for (const s of tunSocks.values()) { try { s.destroy(); } catch (_) {} } tunSocks.clear(); for (const t of tunServers.values()) { try { t.srv.close(); } catch (_) {} } tunServers.clear(); tunLocalPorts.clear(); }
 function loadLanApi(dll) {
   if (lanApi) return lanApi;
   const koffi = require("koffi");
@@ -213,7 +257,7 @@ async function lanStart(opts) {
   worker.on("message", (u8) => { me.rx++; send("lan:in", Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength)); });
   worker.on("error", (e) => { if (lan === me) send("lan:status", { state: "error", error: String((e && e.message) || e) }); });
   lan = me;
-  mcListenStart();
+  mcListenStart(); mcRefresh();
   return { ok: true, ip };
 }
 function lanWrite(buf) {
@@ -229,7 +273,7 @@ function lanWrite(buf) {
 async function lanStop() {
   if (!lan.running) return { ok: true };
   const cur = lan; lan = { running: false }; lanSeq++;
-  mcListenStop();
+  if (!mcWatchRoom) mcListenStop();
   if (process.platform === "win32" && !lanMockPath()) runCmd("netsh", ["interface", "ipv4", "delete", "route", "prefix=" + MC_GROUP + "/32", "interface=" + LAN_NAME, "store=active"]);
   Atomics.store(cur.stop, 0, 1);
   await new Promise((r) => { const t = setTimeout(r, 1500); cur.worker.once("exit", () => { clearTimeout(t); r(); }); });
@@ -678,7 +722,7 @@ function findExeDir(root) {
   }
   return null;
 }
-function send(channel, data) { if (win && !win.isDestroyed()) win.webContents.send(channel, data); }
+function send(channel, ...args) { if (win && !win.isDestroyed()) win.webContents.send(channel, ...args); }
 function ghRedirect(url) {
   // pega só o endereço de redirecionamento (sem seguir), pra descobrir a tag mais nova
   return new Promise((res, rej) => {
@@ -886,7 +930,7 @@ function createWindow() {
     const r = resumeArg(); if (r) send("lan:resume", r);
   });
   // saiu da sala (a tela recarrega): desliga a placa de rede
-  win.webContents.on("did-start-loading", () => { if (lan.running) lanStop(); pcStop(); });
+  win.webContents.on("did-start-loading", () => { if (lan.running) lanStop(); pcStop(); tunCloseAll(); mcWatchRoom = false; mcListenStop(); });
   setInterval(checkUpdate, 30 * 60 * 1000); // re-checa a cada 30 min
   win.on("closed", () => { win = null; try { if (splash && !splash.isDestroyed()) splash.close(); } catch (_) {} });
 }
@@ -1021,5 +1065,5 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} lanStop(); pcStop(); });
+  app.on("before-quit", () => { stopPeerServer(); try { if (probeSrv) probeSrv.close(); } catch (_) {} lanStop(); pcStop(); tunCloseAll(); });
 }

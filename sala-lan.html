@@ -812,7 +812,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
           <div class="panel" id="mcPanel" hidden>
             <h2>Mundos abertos na rede</h2>
             <div class="hublist" id="mcList"></div>
-            <p class="muted" style="margin:12px 0 0">Minecraft: se o mundo não aparecer na lista de LAN, vá em <b>Multijogador → Conexão direta</b> e cole o endereço.</p>
+            <p class="muted" style="margin:12px 0 0">Minecraft: vá em <b>Multijogador → Conexão direta</b> e cole o endereço. O Tátão leva a conexão até quem abriu o mundo pela própria sala, então funciona mesmo com a rede LAN desligada ou com o firewall bloqueando.</p>
           </div>
           <div class="panel">
             <h2>Outras redes neste PC</h2>
@@ -920,7 +920,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.16.1";
+  var APP_VERSION="1.16.2";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -1281,6 +1281,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   function wireCommon(){
     peer.on("connection",function(conn){
       if(conn.label==="probe"){handleProbe(conn);return;}
+      if(conn.label==="mct"){whenMember(conn.peer,function(){serveTun(conn);},function(){try{conn.close();}catch(_){}});return;}
       if(conn.label==="lan"){whenMember(conn.peer,function(){hookLan(conn);},function(){try{conn.close();}catch(_){}});return;}
       if(conn.label==="file"){whenMember(conn.peer,function(){serveFile(conn);},function(){try{conn.close();}catch(_){}});return;}
       if(!isHost&&conn.peer!==hostId){try{conn.close();}catch(_){}return;} // só o anfitrião fala comigo por dados
@@ -1725,6 +1726,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     if(isApp&&api.lanListen)api.lanListen().catch(function(){});
     renderComputers();lanUI();loadYT();renderPcListen();if(pcAvail)pcRefreshList();startPings();if(isHost)refreshKeyInfo();
     presBroadcast({t:"st",room:1,name:myDisplayName()});renderShareSettings();
+    if(isApp&&api.mcWatch)api.mcWatch(true); // percebe quando um mundo do Minecraft é aberto neste PC
   }
   function fatal(e){
     var msg=(e&&e.message)||String(e);
@@ -3225,33 +3227,87 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     var m=/\[MOTD\]([\s\S]{0,200}?)\[\/MOTD\]\[AD\](\d{1,5})\[\/AD\]/.exec(txt);if(!m)return null;
     var port=+m[2];return port>0&&port<65536?{port:port,motd:mcClean(m[1])}:null;
   }
+  var tunOK=!!(isApp&&api.tunListen&&api.tunConnect);
   function mcMineSeen(port,motd){
-    if(!lanActive||!myVip||!inRoom||!(port>0&&port<65536))return;
+    if(!inRoom||!(port>0&&port<65536))return;
     var now=Date.now(),w=mcMine[port];
-    if(!w)sysMsg("Seu mundo “"+motd+"” do Minecraft está aberto na LAN do Tátão. Se não aparecer pros amigos, eles entram em Multijogador → Conexão direta → "+myVip+":"+port);
+    if(!w)sysMsg("Seu mundo “"+motd+"” do Minecraft está aberto. Os amigos da sala recebem um endereço pra entrar pelo Tátão (sem precisar de firewall nem VPN).");
     mcMine[port]={motd:motd,t:now,sent:w?w.sent:0};
     if(now-mcMine[port].sent>8000){mcMine[port].sent=now;sendRoom({t:"mcw",port:port,motd:motd});}
     renderMc();
   }
   function mcFriendSeen(pid,port,motd){
-    var m=members[pid];if(!lanActive||!m||!m.vip||pid===myId||!(port>0&&port<65536))return;
-    var k=pid+":"+port,isNew=!mcWorlds[k];
-    mcWorlds[k]={pid:pid,port:port,motd:motd,t:Date.now()};
-    if(isNew){sysMsg(m.name+" abriu o mundo “"+motd+"” do Minecraft na LAN. Se não aparecer na lista, use Multijogador → Conexão direta → "+m.vip+":"+port);playSnd("msg");}
+    var m=members[pid];if(!inRoom||!m||pid===myId||!(port>0&&port<65536))return;
+    var k=pid+":"+port,w=mcWorlds[k],isNew=!w;
+    if(!w)w=mcWorlds[k]={pid:pid,port:port,local:null};
+    w.motd=motd;w.t=Date.now();
+    if(isNew){
+      playSnd("msg");
+      var tell=function(){sysMsg(m.name+" abriu o mundo “"+motd+"” do Minecraft. Pra entrar: Multijogador → Conexão direta → "+mcAddr(w)+(w.local?" (o Tátão leva a conexão até "+m.name+")":""));};
+      // o Tátão abre uma porta só neste PC (127.0.0.1) que leva até o Minecraft de quem abriu o mundo
+      if(tunOK)api.tunListen(k,port).then(function(r){if(r&&r.ok&&mcWorlds[k]===w)w.local=r.port;tell();renderMc();},function(){tell();});
+      else tell();
+    }
     renderMc();
   }
+  function mcAddr(w){var m=members[w.pid];return w.local?"127.0.0.1:"+w.local:(m&&m.vip&&lanActive?m.vip+":"+w.port:"(abra o app do Tátão no Windows)");}
   function renderMc(){
     var box=$("mcList");if(!box)return;var now=Date.now(),any=false;box.innerHTML="";
-    var add=function(who,avKey,motd,addr){any=true;var row=hrow(avKey,"MC",who+" · “"+motd+"”",addr,"on");row.classList.add("srv");
-      rowBtn(row,"Copiar",function(){copyText(addr,this);},false,"copy");box.appendChild(row);};
-    for(var p in mcMine){if(now-mcMine[p].t>25000){delete mcMine[p];continue;}add("Você",myId,mcMine[p].motd,myVip+":"+p);}
-    for(var k in mcWorlds){var w=mcWorlds[k],m=members[w.pid];if(now-w.t>25000||!m||!m.vip){delete mcWorlds[k];continue;}add(m.name,w.pid,w.motd,m.vip+":"+w.port);}
+    var add=function(who,avKey,motd,sub,copy){any=true;var row=hrow(avKey,"MC",who+" · “"+motd+"”",sub,"on");row.classList.add("srv");
+      if(copy)rowBtn(row,"Copiar",function(){copyText(copy,this);},false,"copy");box.appendChild(row);};
+    for(var p in mcMine){if(now-mcMine[p].t>25000){delete mcMine[p];continue;}add("Você",myId,mcMine[p].motd,"Os amigos da sala entram pelo Tátão"+(lanActive&&myVip?" · LAN: "+myVip+":"+p:""),null);}
+    for(var k in mcWorlds){
+      var w=mcWorlds[k],m=members[w.pid];
+      if(now-w.t>25000||!m){delete mcWorlds[k];if(tunOK)api.tunUnlisten(k);continue;}
+      var addr=mcAddr(w);add(m.name,w.pid,w.motd,"Conexão direta: "+addr,/:\d+$/.test(addr)?addr:null);
+    }
     $("mcPanel").hidden=!any;
   }
   setInterval(function(){if(Object.keys(mcMine).length||Object.keys(mcWorlds).length)renderMc();},5000);
+  // ---- túnel: os bytes do Minecraft vão pela conexão da sala ----
+  var tunConns={};
+  function tunReady(id,t){
+    t.open=true;var dc=t.c.dataChannel;
+    try{dc.bufferedAmountLowThreshold=256*1024;dc.addEventListener("bufferedamountlow",function(){if(t.paused&&tunConns[id]===t){t.paused=false;api.tunPause(id,false);}});}catch(_){}
+    t.paused=false;api.tunPause(id,false);
+  }
+  if(tunOK){
+    api.onTunData(function(id,d){
+      var t=tunConns[id];if(!t||!t.open)return;
+      try{t.c.send(d);}catch(_){api.tunEnd(id);return;}
+      var dc=t.c.dataChannel;if(dc&&dc.bufferedAmount>(2<<20)&&!t.paused){t.paused=true;api.tunPause(id,true);}
+    });
+    api.onTunClose(function(id){var t=tunConns[id];if(t){delete tunConns[id];try{t.c.close();}catch(_){}}});
+    // o Minecraft deste PC conectou em 127.0.0.1:porta → abre um canal até quem abriu o mundo
+    api.onTunIncoming(function(key,id){
+      var w=mcWorlds[key];if(!w||!members[w.pid]||!peer){api.tunEnd(id);return;}
+      var c;try{c=peer.connect(w.pid,{label:"mct",serialization:"raw",reliable:true,metadata:{port:w.port}});}catch(_){api.tunEnd(id);return;}
+      var t=tunConns[id]={c:c,open:false,paused:true};
+      c.on("open",function(){if(tunConns[id]===t)tunReady(id,t);});
+      c.on("data",function(d){var u=toU8(d);if(u)api.tunWrite(id,u);});
+      c.on("close",function(){if(tunConns[id]===t){delete tunConns[id];api.tunEnd(id);}});
+      c.on("error",function(){});
+      setTimeout(function(){if(tunConns[id]===t&&!t.open){delete tunConns[id];api.tunEnd(id);try{c.close();}catch(_){}}},15000);
+    });
+  }
+  // quem abriu o mundo: só liga pra portas de mundos abertos neste PC
+  function serveTun(conn){
+    var port=Math.floor(+(conn.metadata&&conn.metadata.port));
+    if(!mcMine[port]||!tunOK){setTimeout(function(){try{conn.close();}catch(_){}},200);return;}
+    var pend=[],id=null,dead=false;
+    conn.on("data",function(d){var u=toU8(d);if(!u)return;if(id!=null)api.tunWrite(id,u);else pend.push(new Uint8Array(u));});
+    conn.on("close",function(){dead=true;if(id!=null&&tunConns[id]){delete tunConns[id];api.tunEnd(id);}});
+    conn.on("error",function(){});
+    api.tunConnect(port).then(function(r){
+      if(!r||!r.ok||dead){if(r&&r.ok)api.tunEnd(r.id);try{conn.close();}catch(_){}return;}
+      id=r.id;pend.forEach(function(u){api.tunWrite(id,u);});pend=[];
+      var t=tunConns[id]={c:conn,open:false,paused:true};
+      if(conn.open)tunReady(id,t);else conn.on("open",function(){tunReady(id,t);});
+    },function(){try{conn.close();}catch(_){}});
+  }
   if(isApp&&api.onMcWorld)api.onMcWorld(function(d){
     if(!d)return;var port=Math.floor(+d.port),motd=mcClean(d.motd);
-    if(d.mine)mcMineSeen(port,motd);else if(d.from&&vipMap[d.from])mcFriendSeen(vipMap[d.from],port,motd);
+    if(d.mine)mcMineSeen(port,motd);else if(d.from&&vipMap[d.from]&&lanActive)mcFriendSeen(vipMap[d.from],port,motd);
   });
   function onLanFromTun(d){
     if(!lanActive)return;
@@ -3303,7 +3359,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   }
   function lanDisable(){
     if(lanActive)playSnd("pararLan");
-    lanActive=false;lanWant=false;mcMine={};mcWorlds={};renderMc();$("lanPrivNote").hidden=true;
+    lanActive=false;lanWant=false;$("lanPrivNote").hidden=true;renderMc();
     if(api.lanStop)api.lanStop().catch(function(){});
     syncLanMesh();pushMyState();lanUI();renderComputers();
   }
