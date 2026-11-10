@@ -800,13 +800,19 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               <div class="controls"><button class="btn primary" id="lanElevate">Reabrir como administrador</button></div>
             </div>
             <div class="err" id="lanErr"></div>
+            <div class="note warn" id="lanPrivNote" hidden style="margin-top:12px">O Windows ainda não marcou a rede do Tátão como <b>Privada</b>, então o firewall pode impedir os amigos de entrarem no seu jogo. Abra as Configurações do Windows → <b>Rede e Internet</b> → <b>TataoLAN</b> e escolha <b>Rede privada</b>.</div>
             <label class="check"><input type="checkbox" id="lanAuto"> Ligar a rede LAN automaticamente ao entrar na sala</label>
             <div id="adminBox" hidden>
               <label class="check"><input type="checkbox" id="alwaysAdmin"> Sempre abrir o Tátão como administrador</label>
               <p class="muted" id="adminState" style="margin:-6px 0 10px 26px"></p>
               <div class="controls" id="adminNowRow" hidden style="margin:0 0 12px 26px"><button class="btn small" id="adminNow">Reabrir agora como administrador</button></div>
             </div>
-            <div class="note">Funciona como o Radmin: cada pessoa da sala que ligar a rede ganha um IP <b>10.77.x.x</b> e todos ficam na mesma LAN. Os pacotes do jogo vão direto de PC pra PC, criptografados, sem servidor no meio. No jogo, crie ou procure a partida em <b>LAN</b>; se ele pedir o IP do anfitrião, use o IP que aparece ao lado do nome dele.</div>
+            <div class="note">Funciona como o Radmin: cada pessoa da sala que ligar a rede ganha um IP <b>10.77.x.x</b> e todos ficam na mesma LAN. Os pacotes do jogo vão direto de PC pra PC, criptografados, sem servidor no meio. No jogo, crie ou procure a partida em <b>LAN</b>; se ele pedir o IP do anfitrião, use o IP que aparece ao lado do nome dele. Mundos do Minecraft abertos pra LAN aparecem aqui embaixo com o endereço pronto pra copiar.</div>
+          </div>
+          <div class="panel" id="mcPanel" hidden>
+            <h2>Mundos abertos na rede</h2>
+            <div class="hublist" id="mcList"></div>
+            <p class="muted" style="margin:12px 0 0">Minecraft: se o mundo não aparecer na lista de LAN, vá em <b>Multijogador → Conexão direta</b> e cole o endereço.</p>
           </div>
           <div class="panel">
             <h2>Outras redes neste PC</h2>
@@ -914,7 +920,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.16.0";
+  var APP_VERSION="1.16.1";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -1372,6 +1378,9 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
       commitRoster(msg.members||{});
       if($("statTxt").textContent==="Entrando na sala…")setStatus("ok","Online");
       rejoinTries=0;
+    }else if(msg.t==="mcw"){
+      var mfrom=isHost?conn.peer:String(msg.from||"");if(isHost)fileRelay(msg,mfrom);
+      mcFriendSeen(mfrom,Math.floor(+msg.port),mcClean(msg.motd));
     }else if(msg.t==="file"||msg.t==="fhave"||msg.t==="fdrop"||msg.t==="fcat"){
       onFileMsg(conn,msg);
     }else if(msg.t==="chat"){
@@ -3201,12 +3210,54 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     if(!lanActive)return;
     var u=toU8(d);if(!u||u.length<20||(u[0]>>4)!==4)return;
     var m=members[pid];if(!m||!m.vip||ipAt(u,12)!==m.vip)return; // só aceita pacote com o IP de quem mandou
+    if(u[16]>=224&&u[16]<=239){var mc=mcParse(u);if(mc)mcFriendSeen(pid,mc.port,mc.motd);}
     if(api.lanWrite)api.lanWrite(u);
   }
+  // ---- Minecraft: mundos abertos pra LAN ----
+  // O Minecraft Java avisa em 224.0.2.60:4445 "[MOTD]nome[/MOTD][AD]porta[/AD]". O Tátão mostra o endereço pronto pra
+  // "Conexão direta", porque o Windows às vezes manda esse aviso pela rede normal e o mundo não aparece na lista.
+  var MC_IP="224.0.2.60",mcWorlds={},mcMine={};
+  function mcClean(s){return String(s||"").replace(/\u00a7./g,"").replace(/[\x00-\x1f]/g,"").trim().slice(0,60)||"Mundo";}
+  function mcParse(u){
+    var ihl=(u[0]&15)*4;if(u[9]!==17||u.length<ihl+8||ipAt(u,16)!==MC_IP)return null;
+    if(((u[ihl+2]<<8)|u[ihl+3])!==4445)return null;
+    var txt;try{txt=new TextDecoder().decode(u.subarray(ihl+8));}catch(_){return null;}
+    var m=/\[MOTD\]([\s\S]{0,200}?)\[\/MOTD\]\[AD\](\d{1,5})\[\/AD\]/.exec(txt);if(!m)return null;
+    var port=+m[2];return port>0&&port<65536?{port:port,motd:mcClean(m[1])}:null;
+  }
+  function mcMineSeen(port,motd){
+    if(!lanActive||!myVip||!inRoom||!(port>0&&port<65536))return;
+    var now=Date.now(),w=mcMine[port];
+    if(!w)sysMsg("Seu mundo “"+motd+"” do Minecraft está aberto na LAN do Tátão. Se não aparecer pros amigos, eles entram em Multijogador → Conexão direta → "+myVip+":"+port);
+    mcMine[port]={motd:motd,t:now,sent:w?w.sent:0};
+    if(now-mcMine[port].sent>8000){mcMine[port].sent=now;sendRoom({t:"mcw",port:port,motd:motd});}
+    renderMc();
+  }
+  function mcFriendSeen(pid,port,motd){
+    var m=members[pid];if(!lanActive||!m||!m.vip||pid===myId||!(port>0&&port<65536))return;
+    var k=pid+":"+port,isNew=!mcWorlds[k];
+    mcWorlds[k]={pid:pid,port:port,motd:motd,t:Date.now()};
+    if(isNew){sysMsg(m.name+" abriu o mundo “"+motd+"” do Minecraft na LAN. Se não aparecer na lista, use Multijogador → Conexão direta → "+m.vip+":"+port);playSnd("msg");}
+    renderMc();
+  }
+  function renderMc(){
+    var box=$("mcList");if(!box)return;var now=Date.now(),any=false;box.innerHTML="";
+    var add=function(who,avKey,motd,addr){any=true;var row=hrow(avKey,"MC",who+" · “"+motd+"”",addr,"on");row.classList.add("srv");
+      rowBtn(row,"Copiar",function(){copyText(addr,this);},false,"copy");box.appendChild(row);};
+    for(var p in mcMine){if(now-mcMine[p].t>25000){delete mcMine[p];continue;}add("Você",myId,mcMine[p].motd,myVip+":"+p);}
+    for(var k in mcWorlds){var w=mcWorlds[k],m=members[w.pid];if(now-w.t>25000||!m||!m.vip){delete mcWorlds[k];continue;}add(m.name,w.pid,w.motd,m.vip+":"+w.port);}
+    $("mcPanel").hidden=!any;
+  }
+  setInterval(function(){if(Object.keys(mcMine).length||Object.keys(mcWorlds).length)renderMc();},5000);
+  if(isApp&&api.onMcWorld)api.onMcWorld(function(d){
+    if(!d)return;var port=Math.floor(+d.port),motd=mcClean(d.motd);
+    if(d.mine)mcMineSeen(port,motd);else if(d.from&&vipMap[d.from])mcFriendSeen(vipMap[d.from],port,motd);
+  });
   function onLanFromTun(d){
     if(!lanActive)return;
     var u=toU8(d);if(!u||u.length<20||(u[0]>>4)!==4)return;
     var a=u[16],b=u[17],c=u[18],e=u[19];
+    if(a>=224&&a<=239){var mc=mcParse(u);if(mc)mcMineSeen(mc.port,mc.motd);}
     if((a===255&&b===255&&c===255&&e===255)||(a===10&&b===77&&c===255&&e===255)||(a>=224&&a<=239)){
       for(var id in lanConns)sendLan(lanConns[id],u); // busca de partida / anúncio: vai pra todos
       return;
@@ -3216,7 +3267,10 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   }
   function sendLan(c,u){try{if(c.open)c.send(u);}catch(_){}}
   if(isApp&&api.onLanIn)api.onLanIn(onLanFromTun);
-  if(isApp&&api.onLanStatus)api.onLanStatus(function(s){if(s&&s.state==="error")lanError("A rede LAN parou: "+(s.error||"erro desconhecido"));});
+  if(isApp&&api.onLanStatus)api.onLanStatus(function(s){
+    if(!s)return;if(s.state==="error")lanError("A rede LAN parou: "+(s.error||"erro desconhecido"));
+    if(s.state==="notprivate"&&lanActive)$("lanPrivNote").hidden=false;if(s.state==="private")$("lanPrivNote").hidden=true;
+  });
 
   function lanPeersOn(){var n=0;for(var id in members)if(id!==myId&&members[id].lanOn)n++;return n===0?"Nenhum amigo está":n===1?"1 amigo está":n+" amigos estão";}
   function lanError(msg){$("lanErr").textContent=msg||"";}
@@ -3249,7 +3303,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   }
   function lanDisable(){
     if(lanActive)playSnd("pararLan");
-    lanActive=false;lanWant=false;
+    lanActive=false;lanWant=false;mcMine={};mcWorlds={};renderMc();$("lanPrivNote").hidden=true;
     if(api.lanStop)api.lanStop().catch(function(){});
     syncLanMesh();pushMyState();lanUI();renderComputers();
   }

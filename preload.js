@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   lanWrite: (u8) => ipcRenderer.send("lan:out", u8),
   onLanIn: (cb) => ipcRenderer.on("lan:in", (_e, d) => cb(d)),
   onLanStatus: (cb) => ipcRenderer.on("lan:status", (_e, d) => cb(d)),
+  onMcWorld: (cb) => ipcRenderer.on("lan:mcworld", (_e, d) => cb(d)),
   onLanResume: (cb) => ipcRenderer.on("lan:resume", (_e, d) => cb(d)),
   // auto-update
   onUpdateAvailable: (cb) => ipcRenderer.on("update-available", (_e, d) => cb(d)),

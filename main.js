@@ -95,7 +95,7 @@ function lanProbe(ip) {
 const { Worker } = require("worker_threads");
 const LAN_NAME = "TataoLAN";
 const LAN_GUID = { Data1: 0x7a7a0001, Data2: 0x7a7a, Data3: 0x4c41, Data4: [0x4e, 0x54, 0x41, 0x54, 0x41, 0x4f, 0x30, 0x31] }; // fixo: o Windows reconhece sempre a mesma rede
-let lan = { running: false };
+let lan = { running: false }, lanSeq = 0;
 let lanApi = null;
 function lanMockPath() { return !app.isPackaged && process.env.TATAO_LAN_MOCK ? process.env.TATAO_LAN_MOCK : null; } // só em teste de desenvolvimento
 function isAdmin() {
@@ -123,10 +123,47 @@ async function configureLanIp(ip, mask) {
   // métrica baixa: a busca de partidas em LAN (broadcast) sai por esta placa
   await runCmd("netsh", ["interface", "ipv4", "set", "interface", "interface=" + LAN_NAME, "metric=5"]);
   await runCmd("netsh", ["interface", "ipv4", "set", "subinterface", LAN_NAME, "mtu=1380", "store=active"]);
+  // o aviso de "Abrir para LAN" do Minecraft (224.0.2.60) sai por esta placa, e não pela rede normal
+  await runCmd("netsh", ["interface", "ipv4", "add", "route", "prefix=" + MC_GROUP + "/32", "interface=" + LAN_NAME, "metric=1", "store=active"]);
   // rede "Privada": o firewall do Windows deixa os jogos receberem conexões dos amigos
-  setTimeout(() => { runCmd("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Set-NetConnectionProfile -InterfaceAlias " + LAN_NAME + " -NetworkCategory Private"]); }, 6000);
+  // (o Windows leva uns segundos pra "identificar" a rede nova; tenta até conseguir)
+  (async () => {
+    const ps = "$p=Get-NetConnectionProfile -InterfaceAlias " + LAN_NAME + " -ErrorAction SilentlyContinue; if($p){ if($p.NetworkCategory -ne 'Private'){ Set-NetConnectionProfile -InterfaceAlias " + LAN_NAME + " -NetworkCategory Private -ErrorAction SilentlyContinue }; (Get-NetConnectionProfile -InterfaceAlias " + LAN_NAME + ").NetworkCategory }";
+    const g = lanSeq;
+    for (let i = 0; i < 8 && g === lanSeq; i++) {
+      await new Promise((r) => setTimeout(r, i ? 5000 : 3000));
+      const r = await runCmd("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps]);
+      if (/Private/.test(r.out)) { send("lan:status", { state: "private" }); return; }
+    }
+    send("lan:status", { state: "notprivate" });
+  })();
   return true;
 }
+// ---------- Minecraft: percebe quando um mundo é aberto pra LAN neste PC ----------
+// O Minecraft (Java) avisa a cada 1,5 s em 224.0.2.60:4445: "[MOTD]nome[/MOTD][AD]porta[/AD]".
+const MC_GROUP = "224.0.2.60", MC_PORT = 4445;
+let mcSock = null, mcLast = {};
+function localIps() { const out = new Set(["127.0.0.1"]); const ifs = os.networkInterfaces(); for (const k in ifs) for (const a of ifs[k]) if (a.family === "IPv4" || a.family === 4) out.add(a.address); return out; }
+function mcListenStart() {
+  if (mcSock) return;
+  let s;
+  try { s = require("dgram").createSocket({ type: "udp4", reuseAddr: true }); } catch (_) { return; }
+  mcSock = s;
+  s.on("error", () => { try { s.close(); } catch (_) {} if (mcSock === s) mcSock = null; });
+  s.on("message", (msg, rinfo) => {
+    const m = /\[MOTD\]([\s\S]{0,200}?)\[\/MOTD\]\[AD\](\d{1,5})\[\/AD\]/.exec(msg.toString("utf8"));
+    if (!m) return;
+    const port = +m[2]; if (!(port > 0 && port < 65536)) return;
+    const mine = localIps().has(rinfo.address), key = (mine ? "eu" : rinfo.address) + ":" + port, now = Date.now();
+    if (now - (mcLast[key] || 0) < 4000) return; mcLast[key] = now;
+    send("lan:mcworld", { port, motd: m[1], mine, from: mine ? null : rinfo.address });
+  });
+  s.bind(MC_PORT, () => {
+    try { s.setMulticastLoopback(true); } catch (_) {}
+    for (const ip of localIps()) { try { s.addMembership(MC_GROUP, ip); } catch (_) {} }
+  });
+}
+function mcListenStop() { const s = mcSock; mcSock = null; mcLast = {}; if (s) { try { s.close(); } catch (_) {} } }
 function loadLanApi(dll) {
   if (lanApi) return lanApi;
   const koffi = require("koffi");
@@ -176,6 +213,7 @@ async function lanStart(opts) {
   worker.on("message", (u8) => { me.rx++; send("lan:in", Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength)); });
   worker.on("error", (e) => { if (lan === me) send("lan:status", { state: "error", error: String((e && e.message) || e) }); });
   lan = me;
+  mcListenStart();
   return { ok: true, ip };
 }
 function lanWrite(buf) {
@@ -190,7 +228,9 @@ function lanWrite(buf) {
 }
 async function lanStop() {
   if (!lan.running) return { ok: true };
-  const cur = lan; lan = { running: false };
+  const cur = lan; lan = { running: false }; lanSeq++;
+  mcListenStop();
+  if (process.platform === "win32" && !lanMockPath()) runCmd("netsh", ["interface", "ipv4", "delete", "route", "prefix=" + MC_GROUP + "/32", "interface=" + LAN_NAME, "store=active"]);
   Atomics.store(cur.stop, 0, 1);
   await new Promise((r) => { const t = setTimeout(r, 1500); cur.worker.once("exit", () => { clearTimeout(t); r(); }); });
   try { await cur.worker.terminate(); } catch (_) {}

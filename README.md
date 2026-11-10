@@ -18,6 +18,8 @@ Zipe a pasta `dist/Tatao-win32-x64` como `Tatao-Windows.zip`.
 ## Rede LAN própria (beta)
 Na aba **Rede LAN**, o Tátão cria uma placa de rede virtual (`TataoLAN`, via [Wintun](https://www.wintun.net/)) e dá a cada pessoa da sala um IP `10.77.x.x` — o host é sempre `10.77.0.1`. Os pacotes dos jogos passam direto entre os PCs pela conexão P2P da sala. Ligar a rede pede permissão de administrador uma vez por abertura do app.
 
+**Minecraft (Java):** ao "Abrir para LAN", o Tátão percebe o aviso do jogo (mesmo quando o Windows manda ele pela rede normal em vez da placa do Tátão), avisa a sala no chat e mostra o endereço em **Rede LAN → Mundos abertos na rede**. Se o mundo não aparecer na lista do amigo, ele entra em **Multijogador → Conexão direta** com esse endereço. O aviso do Minecraft (224.0.2.60) também passa a sair pela placa do Tátão enquanto a rede está ligada, e a placa é marcada como rede **Privada** (o app tenta de novo até o Windows aceitar).
+
 O `wintun.dll` não fica no repositório: o build do GitHub Actions baixa a versão oficial assinada. Pra build local, coloque `wintun.dll` (amd64) e `LICENSE.txt` em `vendor/` como `vendor/wintun.dll` e `vendor/wintun-LICENSE.txt`.
 
 ## Áudio do PC (Spotify ou qualquer app)
