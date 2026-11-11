@@ -142,30 +142,88 @@ async function configureLanIp(ip, mask) {
 // ---------- Minecraft: percebe quando um mundo é aberto pra LAN neste PC ----------
 // O Minecraft (Java) avisa a cada 1,5 s em 224.0.2.60:4445: "[MOTD]nome[/MOTD][AD]porta[/AD]".
 const MC_GROUP = "224.0.2.60", MC_PORT = 4445;
-let mcSock = null, mcLast = {}, mcJoined = new Set();
 const mcMinePorts = new Map(); // portas de mundos abertos NESTE PC (só elas podem ser usadas pelo túnel)
 const mcManualPorts = new Set(); // portas que a própria pessoa escolheu compartilhar na aba LAN
 function localIps() { const out = new Set(["127.0.0.1"]); const ifs = os.networkInterfaces(); for (const k in ifs) for (const a of ifs[k]) if (a.family === "IPv4" || a.family === 4) out.add(a.address); return out; }
-function mcListenStart() {
-  if (mcSock) return;
-  let s;
-  try { s = require("dgram").createSocket({ type: "udp4", reuseAddr: true }); } catch (_) { return; }
-  mcSock = s;
-  s.on("error", () => { try { s.close(); } catch (_) {} if (mcSock === s) mcSock = null; });
-  s.on("message", (msg, rinfo) => {
-    const m = /\[MOTD\]([\s\S]{0,200}?)\[\/MOTD\]\[AD\](\d{1,5})\[\/AD\]/.exec(msg.toString("utf8"));
-    if (!m) return;
-    const port = +m[2]; if (!(port > 0 && port < 65536)) return;
-    const mine = localIps().has(rinfo.address) && !tunLocalPorts.has(port), key = (mine ? "eu" : rinfo.address) + ":" + port, now = Date.now();
-    if (mine) mcMinePorts.set(port, now);
-    if (now - (mcLast[key] || 0) < 4000) return; mcLast[key] = now;
-    send("lan:mcworld", { port, motd: m[1], mine, from: mine ? null : rinfo.address });
+// Acha mundos abertos olhando quem está escutando no PC (o Java do Minecraft) e confirmando com o
+// "ping de status" do próprio Minecraft. Não depende do aviso de rede do jogo (que o firewall ou outra VPN podem desviar).
+const MC_PROCS = (!app.isPackaged && process.env.TATAO_MC_PROCS) ? new RegExp("^(" + process.env.TATAO_MC_PROCS + "|javaw?)(\\.exe)?$", "i") : /^javaw?(\.exe)?$/i;
+const mcNotMc = new Map(); // porta -> quando foi vista e não era Minecraft (não pergunta de novo por 1 min)
+let mcScanTimer = null, mcScanning = false;
+function varInt(n) { const out = []; n >>>= 0; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; out.push(b); } while (n); return Buffer.from(out); }
+function readVarInt(b, o) { let v = 0, s = 0, i = o; while (i < b.length) { const x = b[i++]; v |= (x & 0x7f) << s; if (!(x & 0x80)) return [v >>> 0, i]; s += 7; if (s > 28) return null; } return undefined; }
+function mcText(d) { if (d == null) return ""; if (typeof d === "string") return d; if (Array.isArray(d)) return d.map(mcText).join(""); return (d.text || "") + (Array.isArray(d.extra) ? d.extra.map(mcText).join("") : ""); }
+function mcStatus(port) {
+  return new Promise((res) => {
+    const s = net.connect({ host: "127.0.0.1", port }); let buf = Buffer.alloc(0), done = false;
+    const fin = (v) => { if (done) return; done = true; try { s.destroy(); } catch (_) {} res(v); };
+    s.setTimeout(2500, () => fin(null)); s.on("error", () => fin(null)); s.on("close", () => fin(null));
+    s.on("connect", () => {
+      const host = Buffer.from("127.0.0.1"), pb = Buffer.alloc(2); pb.writeUInt16BE(port);
+      const body = Buffer.concat([varInt(0), varInt(0xffffffff), varInt(host.length), host, pb, varInt(1)]);
+      s.write(Buffer.concat([varInt(body.length), body, varInt(1), varInt(0)]));
+    });
+    s.on("data", (d) => {
+      buf = Buffer.concat([buf, d]); if (buf.length > 262144) return fin(null);
+      const L = readVarInt(buf, 0); if (L === undefined) return; if (!L) return fin(null);
+      if (buf.length < L[1] + L[0]) return;
+      const id = readVarInt(buf, L[1]); if (!id || id[0] !== 0) return fin(null);
+      const sl = readVarInt(buf, id[1]); if (!sl) return fin(null);
+      try { const j = JSON.parse(buf.slice(sl[1], sl[1] + sl[0]).toString("utf8")); fin({ motd: mcText(j.description).replace(/§./g, "").trim().slice(0, 60), version: j.version && j.version.name }); } catch (_) { fin(null); }
+    });
   });
-  s.bind(MC_PORT, () => { try { s.setMulticastLoopback(true); } catch (_) {} mcRefresh(); });
 }
-// entra no grupo em toda placa nova (ex.: a do Tátão, quando a rede LAN liga)
-function mcRefresh() { if (!mcSock) return; for (const ip of localIps()) { if (mcJoined.has(ip)) continue; try { mcSock.addMembership(MC_GROUP, ip); mcJoined.add(ip); } catch (_) {} } }
-function mcListenStop() { const s = mcSock; mcSock = null; mcLast = {}; mcJoined = new Set(); if (s) { try { s.close(); } catch (_) {} } }
+async function javaListenPorts() {
+  const ports = new Set();
+  if (process.platform === "win32") {
+    const t = await runCmd("tasklist", ["/FO", "CSV", "/NH"]), pids = new Set();
+    for (const line of t.out.split(/\r?\n/)) { const m = /^"([^"]+)","(\d+)"/.exec(line); if (m && MC_PROCS.test(m[1])) pids.add(m[2]); }
+    if (!pids.size) return [];
+    const n = await runCmd("netstat", ["-ano"]);
+    // "TCP  0.0.0.0:1111  0.0.0.0:0  LISTENING  1234" (o nome do estado muda com o idioma; o endereço remoto zerado não)
+    for (const line of n.out.split(/\r?\n/)) { const m = /^\s*TCP\s+(\S+):(\d+)\s+(?:0\.0\.0\.0:0|\[::\]:0)\s+\S+\s+(\d+)\s*$/i.exec(line); if (m && pids.has(m[3])) ports.add(+m[2]); }
+  } else if (process.platform === "linux") {
+    // (Linux, só pra desenvolver/testar) portas em escuta pelo /proc
+    const inodes = new Map();
+    for (const f of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+      let txt = ""; try { txt = fs.readFileSync(f, "utf8"); } catch (_) { continue; }
+      for (const line of txt.split("\n").slice(1)) { const c = line.trim().split(/\s+/); if (c[3] === "0A") inodes.set(c[9], parseInt(c[1].split(":")[1], 16)); }
+    }
+    for (const pid of fs.readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
+      let comm = ""; try { comm = fs.readFileSync("/proc/" + pid + "/comm", "utf8").trim(); } catch (_) { continue; }
+      if (!MC_PROCS.test(comm)) continue;
+      let fds = []; try { fds = fs.readdirSync("/proc/" + pid + "/fd"); } catch (_) { continue; }
+      for (const fd of fds) { let l = ""; try { l = fs.readlinkSync("/proc/" + pid + "/fd/" + fd); } catch (_) { continue; } const m = /^socket:\[(\d+)\]$/.exec(l); if (m && inodes.has(m[1])) ports.add(inodes.get(m[1])); }
+    }
+  }
+  for (const p of tunLocalPorts) ports.delete(p); // as portas do próprio túnel não são mundos
+  return [...ports];
+}
+async function mcScan() {
+  if (mcScanning) return; mcScanning = true;
+  try {
+    const now = Date.now();
+    for (const port of await javaListenPorts()) {
+      if (now - (mcNotMc.get(port) || 0) < 60000) continue;
+      const st = await mcStatus(port);
+      if (!st) { mcNotMc.set(port, now); continue; }
+      mcMinePorts.set(port, Date.now());
+      send("lan:mcworld", { port, motd: st.motd || "Mundo do Minecraft", mine: true, version: st.version || "" });
+    }
+  } catch (_) {} finally { mcScanning = false; }
+}
+function mcListenStart() { if (mcScanTimer) return; mcScan(); mcScanTimer = setInterval(mcScan, 5000); }
+function mcRefresh() {}
+function mcListenStop() { if (mcScanTimer) { clearInterval(mcScanTimer); mcScanTimer = null; } mcNotMc.clear(); }
+// No PC do amigo: avisa o Minecraft dele (como o "Abrir para LAN" faz) que tem um mundo em 127.0.0.1:porta do túnel,
+// pra ele aparecer sozinho na aba Multijogador.
+let mcAnnSock = null, mcAnnTimer = null;
+function mcAnnounceTick() {
+  const list = [...tunServers.values()].filter((t) => t.label);
+  if (!list.length) { if (mcAnnTimer) { clearInterval(mcAnnTimer); mcAnnTimer = null; } if (mcAnnSock) { try { mcAnnSock.close(); } catch (_) {} mcAnnSock = null; } return; }
+  if (!mcAnnSock) { mcAnnSock = require("dgram").createSocket("udp4"); mcAnnSock.on("error", () => {}); mcAnnSock.bind(0, "127.0.0.1"); }
+  for (const t of list) { try { mcAnnSock.send(Buffer.from("[MOTD]" + t.label + "[/MOTD][AD]" + t.port + "[/AD]"), MC_PORT, "127.0.0.1"); } catch (_) {} }
+}
 let mcWatchRoom = false;
 ipcMain.on("mc:watch", (_e, on) => {
   if (!app.isPackaged && process.env.TATAO_NO_MC) return; // só em teste: dois apps no mesmo PC
@@ -182,14 +240,18 @@ function tunAttach(id, sock) {
   sock.on("close", () => { if (tunSocks.get(id) === sock) { tunSocks.delete(id); send("tun:close", id); } });
   sock.on("error", () => {});
 }
-ipcMain.handle("tun:listen", (_e, key, want) => {
+ipcMain.handle("tun:listen", (_e, key, want, label) => {
   key = String(key || "").slice(0, 100); want = Math.floor(+want) || 0;
-  const cur = tunServers.get(key); if (cur) return { ok: true, port: cur.port };
+  label = String(label || "").replace(/[\[\]\x00-\x1f]/g, "").slice(0, 80);
+  const cur = tunServers.get(key); if (cur) { if (label) cur.label = label; return { ok: true, port: cur.port }; }
   return new Promise((res) => {
     const srv = net.createServer((sock) => { const id = ++tunSeq; tunAttach(id, sock); send("tun:incoming", key, id); });
     const go = (p) => {
       srv.once("error", (e) => { if (p) go(0); else res({ ok: false, error: String((e && e.message) || e) }); });
-      srv.listen(p, "127.0.0.1", () => { const port = srv.address().port; tunServers.set(key, { srv, port }); tunLocalPorts.add(port); res({ ok: true, port }); });
+      srv.listen(p, "127.0.0.1", () => {
+        const port = srv.address().port; tunServers.set(key, { srv, port, label }); tunLocalPorts.add(port); res({ ok: true, port });
+        if (label && !mcAnnTimer) { mcAnnTimer = setInterval(mcAnnounceTick, 1500); mcAnnounceTick(); }
+      });
     };
     go(want > 1024 && want < 65536 ? want : 0);
   });
@@ -209,7 +271,7 @@ ipcMain.handle("tun:connect", (_e, port) => {
 ipcMain.on("tun:write", (_e, id, buf) => { const s = tunSocks.get(id); if (s && buf) { try { s.write(buf.buffer ? Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength) : Buffer.from(buf)); } catch (_) {} } });
 ipcMain.on("tun:pause", (_e, id, on) => { const s = tunSocks.get(id); if (s) { if (on) s.pause(); else s.resume(); } });
 ipcMain.on("tun:end", (_e, id) => { const s = tunSocks.get(id); if (s) { tunSocks.delete(id); try { s.destroy(); } catch (_) {} } });
-function tunCloseAll() { mcManualPorts.clear(); for (const s of tunSocks.values()) { try { s.destroy(); } catch (_) {} } tunSocks.clear(); for (const t of tunServers.values()) { try { t.srv.close(); } catch (_) {} } tunServers.clear(); tunLocalPorts.clear(); }
+function tunCloseAll() { mcManualPorts.clear(); setTimeout(mcAnnounceTick, 0); for (const s of tunSocks.values()) { try { s.destroy(); } catch (_) {} } tunSocks.clear(); for (const t of tunServers.values()) { try { t.srv.close(); } catch (_) {} } tunServers.clear(); tunLocalPorts.clear(); }
 function loadLanApi(dll) {
   if (lanApi) return lanApi;
   const koffi = require("koffi");

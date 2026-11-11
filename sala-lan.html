@@ -932,7 +932,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.16.3";
+  var APP_VERSION="1.16.4";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
@@ -3241,11 +3241,12 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     var m=/\[MOTD\]([\s\S]{0,200}?)\[\/MOTD\]\[AD\](\d{1,5})\[\/AD\]/.exec(txt);if(!m)return null;
     var port=+m[2];return port>0&&port<65536?{port:port,motd:mcClean(m[1])}:null;
   }
-  var tunOK=!!(isApp&&api.tunListen&&api.tunConnect);
+  var tunOK=!!(isApp&&api.tunListen&&api.tunConnect),mcIgnore={};
   function mcMineSeen(port,motd){
     if(!inRoom||!(port>0&&port<65536))return;
     var now=Date.now(),w=mcMine[port];
     if(w&&w.manual){w.auto=now;return;} // já está compartilhado na mão
+    if(mcIgnore[port])return; // a pessoa clicou em Parar
     if(!w)sysMsg("Seu mundo “"+motd+"” do Minecraft está aberto. Os amigos da sala recebem um endereço pra entrar pelo Tátão (sem precisar de firewall nem VPN).");
     mcMine[port]={motd:motd,t:now,sent:w?w.sent:0};
     if(now-mcMine[port].sent>8000){mcMine[port].sent=now;sendRoom({t:"mcw",port:port,motd:motd});}
@@ -3258,9 +3259,9 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     w.motd=motd;w.t=Date.now();
     if(isNew){
       playSnd("msg");
-      var tell=function(){sysMsg((manual?m.name+" compartilhou “"+motd+"” (porta "+port+")":m.name+" abriu o mundo “"+motd+"” do Minecraft")+". Pra entrar: Multijogador → Conexão direta → "+mcAddr(w)+(w.local?" (o Tátão leva a conexão até "+m.name+")":""));};
+      var tell=function(){sysMsg((manual?m.name+" compartilhou “"+motd+"” (porta "+port+")":m.name+" abriu o mundo “"+motd+"” do Minecraft")+"."+(w.local?" Ele aparece sozinho em Multijogador, na parte de LAN; se não aparecer, use Conexão direta → "+mcAddr(w)+" (o Tátão leva a conexão até "+m.name+").":" Pra entrar: Multijogador → Conexão direta → "+mcAddr(w)));};
       // o Tátão abre uma porta só neste PC (127.0.0.1) que leva até o Minecraft de quem abriu o mundo
-      if(tunOK)api.tunListen(k,port).then(function(r){if(r&&r.ok&&mcWorlds[k]===w)w.local=r.port;tell();renderMc();},function(){tell();});
+      if(tunOK)api.tunListen(k,port,motd+" - "+m.name+" (Tátão)").then(function(r){if(r&&r.ok&&mcWorlds[k]===w)w.local=r.port;tell();renderMc();},function(){tell();});
       else tell();
     }
     renderMc();
@@ -3273,7 +3274,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     for(var p in mcMine){
       var mw=mcMine[p];if(!mw.manual&&now-mw.t>25000){delete mcMine[p];continue;}
       var row0=add("Você",myId,mw.motd+(mw.manual?" (porta "+p+")":""),"Os amigos da sala entram pelo Tátão"+(lanActive&&myVip?" · LAN: "+myVip+":"+p:""),null);
-      if(mw.manual)(function(pp){rowBtn(row0,"Parar",function(){mcUnshare(pp);});})(+p);
+      (function(pp,man){rowBtn(row0,"Parar",function(){if(!man)mcIgnore[pp]=true;mcUnshare(pp);});})(+p,!!mw.manual);
     }
     for(var k in mcWorlds){
       var w=mcWorlds[k],m=members[w.pid];
