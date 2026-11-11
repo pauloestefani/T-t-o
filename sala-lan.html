@@ -424,6 +424,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 .mcshare .control{margin:0;flex:1 1 120px;min-width:0}
 .mcshare .control:first-child{flex:0 1 120px}
 .mcshare .btn{min-height:42px}
+html.mobile [data-pc]{display:none!important}
 /* ---------- rede LAN ---------- */
 .device{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--t-border);padding:13px 0}
 .device:last-child{border-bottom:0}
@@ -666,7 +667,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     <button class="nav" data-tab="settings"><span class="navic"><svg class="ic lg"><use href="#i-sliders"/></svg></span>Ajustes</button>
     <div class="side-foot">
       <span class="ver" id="verLabel">v—</span>
-      <button class="iconbtn updCheck" title="Verificar atualização" aria-label="Verificar atualização"><svg class="ic"><use href="#i-download"/></svg></button>
+      <button class="iconbtn updCheck" data-pc title="Verificar atualização" aria-label="Verificar atualização"><svg class="ic"><use href="#i-download"/></svg></button>
     </div>
   </nav>
 
@@ -717,13 +718,13 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               <div class="stagefoot">
                 <span id="stageInfo">Ninguém está transmitindo.</span>
                 <button class="btn small" id="swapBtn" hidden title="Escolher outra janela ou tela sem parar a transmissão"><svg class="ic sm"><use href="#i-swap"/></svg>Trocar janela</button>
-                <select id="shareType" aria-label="O que transmitir">
+                <select id="shareType" data-pc aria-label="O que transmitir">
                   <option value="screen">Tela inteira</option>
                   <option value="window">Janela do aplicativo</option>
                   <option value="game">Jogo</option>
                 </select>
-                <select id="quality" aria-label="Qualidade"><option>720p</option><option>1080p</option><option>1440p</option></select>
-                <select id="fps" aria-label="Quadros por segundo"><option value="30">30 FPS</option><option value="60">60 FPS</option></select>
+                <select id="quality" data-pc aria-label="Qualidade"><option>720p</option><option>1080p</option><option>1440p</option></select>
+                <select id="fps" data-pc aria-label="Quadros por segundo"><option value="30">30 FPS</option><option value="60">60 FPS</option></select>
               </div>
             </section>
             <div class="voice" role="group" aria-label="Voz">
@@ -733,7 +734,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               <span class="grow"></span>
               <button class="vbtn" id="micBtn"></button>
               <button class="vbtn" id="soundBtn"></button>
-              <button class="btn primary" id="shareBtn"></button>
+              <button class="btn primary" id="shareBtn" data-pc></button>
               <span class="divider" aria-hidden="true"></span>
               <button class="btn" id="leaveBtn"><svg class="ic"><use href="#i-logout"/></svg>Sair da sala</button>
             </div>
@@ -771,7 +772,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               <div class="queue" id="mQueue" hidden></div>
               <div class="qtools"><button class="btn small" id="mClear" hidden title="Tirar tudo da fila">Limpar fila</button></div>
               <div class="mrow"><svg class="ic"><use href="#i-vol"/></svg><input type="range" class="range" id="musicVol" min="0" max="100" value="80" aria-label="Volume da música"><span class="val"><span id="musicVolVal">80</span>%</span></div>
-              <details class="mmore" id="pcDetails">
+              <details class="mmore" id="pcDetails" data-pc>
                 <summary><svg class="ic sm"><use href="#i-pcaudio"/></svg>Áudio do seu PC (Spotify ou qualquer app)<svg class="ic sm chev"><use href="#i-chev"/></svg></summary>
                 <div class="pcbox" id="pcBox">
                   <span class="muted">Toque no seu PC e a sala ouve junto, sem as vozes da conversa.</span>
@@ -791,7 +792,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
       <div class="pagehead"><h1>Rede LAN</h1><span class="lead">Conexão entre computadores pra jogar em LAN</span></div>
       <div class="grid">
         <div>
-          <div class="panel">
+          <div class="panel" data-pc>
             <h2>Rede LAN do Tátão <span class="pill gray">beta</span></h2>
             <div class="lanstate" id="lanState">
               <span class="ldot"></span>
@@ -817,6 +818,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
             <h2>Jogos abertos pela sala</h2>
             <div class="hublist" id="mcList"></div>
             <p class="muted" style="margin:12px 0 0">Minecraft: vá em <b>Multijogador → Conexão direta</b> e cole o endereço. O Tátão leva a conexão até quem abriu o mundo pela própria sala, então funciona mesmo com a rede LAN desligada ou com o firewall bloqueando.</p>
+            <div data-pc>
             <h3 class="subh">Compartilhar um jogo aberto neste PC</h3>
             <p class="muted">Use quando o mundo não aparecer aqui sozinho. No Minecraft, a porta aparece no chat quando você abre pra LAN (ou é a que você escolheu).</p>
             <form class="mcshare" id="mcShareForm">
@@ -825,8 +827,9 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               <button class="btn primary" type="submit" id="mcShareBtn">Compartilhar</button>
             </form>
             <div class="err" id="mcShareErr" role="alert"></div>
+            </div>
           </div>
-          <div class="panel">
+          <div class="panel" data-pc>
             <h2>Outras redes neste PC</h2>
             <div id="myNets"></div>
             <div class="controls"><button class="btn small" id="lanRefresh"><svg class="ic sm"><use href="#i-refresh"/></svg>Atualizar</button></div>
@@ -907,8 +910,18 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
               <div class="control"><label for="host">Host</label><input id="host" type="text" placeholder="ex: 26.12.0.5" autocomplete="off"></div>
               <div class="control" style="max-width:120px"><label for="port">Porta</label><input id="port" type="text" placeholder="9000" inputmode="numeric" autocomplete="off"></div>
             </div>
-            <label class="check"><input type="checkbox" id="hostServer"> Rodar o servidor neste PC</label>
+            <label class="check" data-pc><input type="checkbox" id="hostServer"> Rodar o servidor neste PC</label>
             <div class="control" id="srvPortField" hidden><label for="srvPort">Porta do servidor</label><input id="srvPort" type="text" placeholder="9000" inputmode="numeric" autocomplete="off"></div>
+            <div class="note">Vale na próxima vez que você entrar numa sala.</div>
+          </div>
+          <div class="panel">
+            <h2>Servidor de repasse <span class="opt">(opcional)</span></h2>
+            <div class="muted">Plano B pra quando a conexão direta não fecha, o que é mais comum em internet de celular (4G/5G). A conversa passa por um servidor TURN no meio: o ping sobe um pouco, mas conecta. Basta um dos dois lados ter isso preenchido. Em branco, o Tátão só tenta a conexão direta.</div>
+            <div class="control"><label for="turnUrl">Endereço</label><input id="turnUrl" type="text" placeholder="ex: turn:meuservidor.com:3478" autocomplete="off"></div>
+            <div class="row2">
+              <div class="control"><label for="turnUser">Usuário</label><input id="turnUser" type="text" autocomplete="off"></div>
+              <div class="control"><label for="turnPass">Senha</label><input id="turnPass" type="password" autocomplete="new-password"></div>
+            </div>
             <div class="note">Vale na próxima vez que você entrar numa sala.</div>
           </div>
           <div class="panel">
@@ -918,7 +931,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
             <p class="muted" id="ytKeyState"></p>
             <button class="btn small" id="ytKeyHelp">Abrir o Google Cloud pra criar a chave</button>
           </div>
-          <div class="panel">
+          <div class="panel" data-pc>
             <h2><svg class="ic"><use href="#i-download"/></svg>Atualizações</h2>
             <p class="muted">Versão instalada: <span id="verLabel2">v—</span>. O Tátão também verifica sozinho ao abrir.</p>
             <button class="btn updCheck">Verificar atualização</button>
@@ -932,10 +945,11 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.16.4";
+  var APP_VERSION="1.17.0";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
+  if(api.isMobile)document.documentElement.classList.add("mobile"); // Tátão dentro do app de celular
 
   // ---------- sons ----------
   var SND={
@@ -1220,7 +1234,11 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
     var lanP=(isApp&&api.lanInfo)?api.lanInfo().then(function(l){lanMine=l||[];}).catch(function(){}):Promise.resolve();
     Promise.all([openMic().catch(function(){}),lanP]).then(function(){startPeer();});
   }
-  function iceConfig(){return{iceServers:[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:global.stun.twilio.com:3478"}]};}
+  function iceConfig(){
+    var s=[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:global.stun.twilio.com:3478"}];
+    String(cfg.turnUrl||"").split(/[\s,]+/).forEach(function(u){if(/^turns?:[^\s]+$/i.test(u))s.push({urls:u,username:String(cfg.turnUser||""),credential:String(cfg.turnPass||"")});});
+    return{iceServers:s};
+  }
   function peerOpts(){
     var o={debug:1,config:iceConfig()};
     var host=ovHost||(cfg.host||"").trim(),port=ovPort||parseInt(cfg.port,10);
@@ -3632,6 +3650,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   $("shareAudio").addEventListener("change",function(){setCfg("shareAudio",this.checked);});
   // trocou o servidor de conexão: a lista de amigos e servidores passa a usar o novo
   var presSrvTimer=null;function presNewServer(){clearTimeout(presSrvTimer);presSrvTimer=setTimeout(function(){if(me.tag){srvStat={};presRestart(300,"connecting");renderServers();}},600);}
+  ["turnUrl","turnUser","turnPass"].forEach(function(k){$(k).addEventListener("change",function(){setCfg(k,this.value.trim());});});
   $("host").addEventListener("change",function(){setCfg("host",this.value.trim());presNewServer();});
   $("port").addEventListener("change",function(){setCfg("port",this.value.trim());presNewServer();});
   $("hostServer").addEventListener("change",function(){setCfg("hostServer",this.checked);$("srvPortField").hidden=!this.checked;});
@@ -3651,6 +3670,7 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
   function prefill(){
     applyTheme(cfg.theme);
     $("name").value=cfg.name||"";$("room").value=cfg.room||"";$("roomPass").value=cfg.roomPass||"";$("autojoin").checked=!!cfg.autojoin;
+    $("turnUrl").value=cfg.turnUrl||"";$("turnUser").value=cfg.turnUser||"";$("turnPass").value=cfg.turnPass||"";
     $("host").value=cfg.host||"";$("port").value=cfg.port||"";$("hostServer").checked=!!cfg.hostServer;
     $("srvPort").value=cfg.serverPort&&cfg.serverPort!=="9000"?cfg.serverPort:"";$("srvPortField").hidden=!cfg.hostServer;
     $("inVol").value=cfg.inVol;$("inVolVal").textContent=cfg.inVol;$("outVol").value=cfg.outVol;$("outVolVal").textContent=cfg.outVol;

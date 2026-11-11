@@ -32,6 +32,11 @@ Na tela inicial:
 - **Amigos**: adicione pelo código ou pelo menu "⋯" de quem estiver na sala. O outro precisa aceitar. A lista mostra quem está com o Tátão aberto.
 - **Chamar**: chama um amigo pro servidor (toca o som de chamada); ele escolhe Entrar ou Recusar. Dentro da sala, use "Chamar amigo".
 
+## No celular (JavaWorld) e servidor de repasse
+A mesma tela do Tátão roda dentro do app Android [JavaWorld](https://github.com/pauloestefani/JavaWorld) (aba "Tátão"). Com um servidor de Minecraft ligado no celular e a pessoa numa sala, o servidor é anunciado pra sala e os amigos no PC entram pelo túnel, sem VPN no celular.
+
+Em **Ajustes → Servidor de repasse** dá pra informar um servidor TURN (endereço, usuário e senha). É o plano B pra quando a conexão direta não fecha, comum em 4G/5G. Basta um dos lados ter. Em branco, só a conexão direta é tentada.
+
 ## Arquivos (estilo torrent)
 Na **Resenha**, clique no clipe, arraste arquivos pra janela ou cole (Ctrl+V). Pra mandar só pra uma pessoa, use o menu "⋯" dela → "Mandar arquivo só pra essa pessoa".
 - Quem manda gera uma impressão digital (SHA-256) de cada pedaço. Quem baixa pega pedaços de até 4 pessoas ao mesmo tempo e confere cada um antes de gravar; pedaço diferente é descartado e quem mandou ele deixa de ser usado.
