@@ -16,6 +16,9 @@ PASSO A PASSO PRA LIGAR (uma vez só)
 2) Pronto. Distribua essa pasta/zip pros amigos.
 
 PRA LANÇAR UMA VERSÃO NOVA
+0) Escreva o que mudou no CHANGELOG.md (uma seção "## X.Y.Z — data" no topo).
+   OBRIGATÓRIO: o GitHub Actions não publica a versão sem essa parte, e é ela
+   que aparece na página do Release e no app depois de atualizar.
 1) Suba o número da versão em:
      - package.json            ("version")
      - sala-lan.html           (meta app-version, var APP_VERSION, #verLabel)
@@ -28,6 +31,8 @@ PRA LANÇAR UMA VERSÃO NOVA
      - Anexe o arquivo  Tatao-Windows.zip
      - Publish release
 4) Os apps de todo mundo detectam sozinhos e se atualizam. Não precisa reenviar nada.
+   (Na prática o GitHub Actions faz os passos 2 e 3 sozinho a cada push na main:
+    gera o Tatao-Windows.zip e o Tatao-Linux.AppImage e publica os dois juntos.)
 
 REGRAS IMPORTANTES
 - A tag do Release precisa ser no formato vX.Y.Z (ex: v1.6.0) e MAIOR que a atual.

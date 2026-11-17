@@ -1,6 +1,6 @@
 # Tátão
 
-App de desktop (Windows) pra jogar em LAN com os amigos: **voz em grupo, compartilhamento de tela, chat, jukebox de YouTube sincronizado e rede LAN própria** (tipo Radmin, sem precisar do Radmin) — tudo P2P (WebRTC).
+App de desktop (Windows e Linux) pra jogar em LAN com os amigos: **voz em grupo, compartilhamento de tela, chat, jukebox de YouTube sincronizado e rede LAN própria** (tipo Radmin, sem precisar do Radmin) — tudo P2P (WebRTC).
 
 ## Rodar em dev
 ```
@@ -15,10 +15,25 @@ node build.js      # sai em dist/Tatao-win32-x64/
 ```
 Zipe a pasta `dist/Tatao-win32-x64` como `Tatao-Windows.zip`.
 
+## Gerar o AppImage (Linux)
+```
+npm install
+node build.js linux                          # sai em dist/Tatao-linux-x64/
+./build-appimage.sh caminho/do/appimagetool  # sai Tatao-Linux.AppImage
+```
+O `appimagetool` vem de https://github.com/AppImage/appimagetool/releases. O GitHub Actions faz isso sozinho a cada versão.
+
+No Linux: baixe o `Tatao-Linux.AppImage`, dê permissão de execução (botão direito → Propriedades → Permitir executar, ou `chmod +x Tatao-Linux.AppImage`) e abra. Na primeira vez ele coloca o atalho no menu de aplicativos. Se a distribuição não tiver FUSE, abra com `./Tatao-Linux.AppImage --appimage-extract-and-run`.
+
+## O que mudou em cada versão
+Fica em [`CHANGELOG.md`](CHANGELOG.md). O texto da versão vira a descrição do Release no GitHub e aparece no app depois de atualizar (e em Ajustes → Atualizações). O build não publica uma versão sem a parte dela no `CHANGELOG.md`.
+
 ## Rede LAN própria (beta)
 Na aba **Rede LAN**, o Tátão cria uma placa de rede virtual (`TataoLAN`, via [Wintun](https://www.wintun.net/)) e dá a cada pessoa da sala um IP `10.77.x.x` — o host é sempre `10.77.0.1`. Os pacotes dos jogos passam direto entre os PCs pela conexão P2P da sala. Ligar a rede pede permissão de administrador uma vez por abertura do app.
 
 **Minecraft (Java):** ao "Abrir para LAN" (ou com um servidor do Minecraft rodando no PC), o Tátão percebe o mundo sozinho: ele olha quais portas o Java está escutando e confirma com o "ping de status" do próprio Minecraft, sem depender do aviso de rede do jogo. No PC de cada amigo, o mundo aparece sozinho em Multijogador (parte de LAN), apontando pro túnel. Cada amigo recebe no chat (e em **Rede LAN → Mundos abertos na rede**) um endereço `127.0.0.1:porta` pra usar em **Multijogador → Conexão direta**: o Tátão do amigo abre essa porta só no PC dele e leva a conexão até o Minecraft de quem abriu o mundo pela própria conexão da sala. Não precisa de rede LAN ligada, VPN nem liberar firewall. Quem abriu o mundo só aceita ligar pra portas de mundos abertos no próprio PC. Se o Tátão não perceber o mundo sozinho, em **Rede LAN → Jogos abertos pela sala** dá pra digitar a porta do jogo (ex.: a porta que o Minecraft mostra ao abrir pra LAN) e compartilhar; o "Parar" tira na hora. O aviso do Minecraft (224.0.2.60) também passa a sair pela placa do Tátão enquanto a rede está ligada, e a placa é marcada como rede **Privada** (o app tenta de novo até o Windows aceitar).
+
+**No Linux** a placa se chama `tatao0` (o TUN do próprio Linux). Os pacotes são os mesmos do Windows (IPv4 puro), então PCs com Windows e com Linux ficam na mesma LAN da sala. Criar a placa e dar o IP precisa de administrador: o Tátão pede a senha pela janela do sistema (`pkexec`) e roda o script `tatao-lan.sh` (fica na pasta de dados do app; só cria a placa, dá o IP `10.77.x.x/16`, põe as rotas de broadcast e do Minecraft e libera a placa no firewalld/ufw quando eles estão ligados). A placa fica sendo da pessoa, então o Tátão se liga nela sem senha enquanto o IP for o mesmo, até desligar o PC. Com o Tátão fechado ela fica sem sinal e as rotas dela deixam de valer. Sem a janela de senha, a aba LAN mostra o comando pra colar no Terminal (`sudo sh …/tatao-lan.sh up IP UID`). Precisa do comando `ip` (pacote `iproute2`, que já vem em quase todas as distribuições).
 
 O `wintun.dll` não fica no repositório: o build do GitHub Actions baixa a versão oficial assinada. Pra build local, coloque `wintun.dll` (amd64) e `LICENSE.txt` em `vendor/` como `vendor/wintun.dll` e `vendor/wintun-LICENSE.txt`.
 
@@ -52,6 +67,6 @@ Cole no painel **Música** um link de música ou playlist do **YouTube** (inclus
 - Spotify: não é convertido, porque a política de desenvolvedores do Spotify proíbe tocar o catálogo dele por outro serviço. Use "Áudio do seu PC".
 
 ## Auto-update
-O app lê `resources/update.json` (campo `repo`) e, ao abrir, checa o último **Release** deste GitHub. Se a tag for maior que a versão instalada, baixa o `.zip` anexado, troca os arquivos e reinicia. Veja `COMO-ATUALIZAR.txt`.
+O app lê `resources/update.json` (campo `repo`) e, ao abrir, checa o último **Release** deste GitHub. Se a tag for maior que a versão instalada, baixa o `.zip` anexado (Windows) ou o `Tatao-Linux.AppImage` (Linux, baixado do lado do arquivo atual e trocado ao reiniciar), e reinicia. Veja `COMO-ATUALIZAR.txt`.
 
 > Deixe o app numa pasta com permissão de escrita (Desktop, Documentos). Evite `C:\Program Files`.

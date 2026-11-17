@@ -405,6 +405,12 @@ html.compact #tab-settings .grid>div:not(:has(.panel[data-pre])){display:none}
 .mbox textarea:focus{border-color:var(--t-focus)}
 .mbox .invite{font:13px var(--t-mono);word-break:break-all;background:var(--t-bg-deep);border:1px solid var(--t-border);border-radius:var(--t-radius-md);padding:10px 12px;user-select:all}
 .mbox .hublist{margin-top:4px}
+.mbox.wnbox{width:min(560px,100%)}
+.mbox.wnbox .mbody2{max-height:min(60vh,520px);overflow:auto;padding-right:4px}
+.mbox ul.wn{margin:0 0 12px;padding-left:20px}
+.mbox ul.wn li{margin:0 0 6px}
+.mbox .mbody2 h3.subh{margin:14px 0 6px}
+.mbox .mbody2 h3.subh:first-child{margin-top:0}
 .callm .callwho{display:flex;align-items:center;gap:16px;font-size:15px}
 .callm .callwho .avatar{width:56px;height:56px;font-size:20px;animation:ringPulse 1.4s ease-out infinite}
 @keyframes ringPulse{0%{box-shadow:0 0 0 0 var(--t-accent)}70%{box-shadow:0 0 0 14px transparent}100%{box-shadow:0 0 0 0 transparent}}
@@ -804,6 +810,13 @@ html.mobile [data-pc]{display:none!important}
               Pra criar a placa de rede virtual, o Windows precisa de permissão de administrador. O Tátão vai reabrir já nesta sala e ligar a rede. Pra não precisar disso toda vez, marque "Sempre abrir o Tátão como administrador" aqui embaixo.
               <div class="controls"><button class="btn primary" id="lanElevate">Reabrir como administrador</button></div>
             </div>
+            <div class="note warn" id="lanRoot" hidden style="margin-top:14px">
+              <span id="lanRootWhy">Pra criar a placa de rede virtual, o Linux precisa da sua senha de administrador.</span> O Linux só pede a senha na primeira vez depois de ligar o PC, ou quando o seu IP na rede muda.
+              <div id="lanRootCmdBox" hidden style="margin-top:10px">Se a janela de senha não aparecer, abra o <b>Terminal</b>, cole este comando, digite sua senha e depois clique em <b>Ligar rede LAN</b> de novo:
+                <div class="netline"><code id="lanRootCmd" style="word-break:break-all"></code><button class="btn small" id="lanRootCopy"><svg class="ic sm"><use href="#i-copy"/></svg>Copiar</button></div>
+              </div>
+              <div class="controls"><button class="btn primary" id="lanRootRetry">Tentar de novo</button></div>
+            </div>
             <div class="err" id="lanErr"></div>
             <div class="note warn" id="lanPrivNote" hidden style="margin-top:12px">O Windows ainda não marcou a rede do Tátão como <b>Privada</b>, então o firewall pode impedir os amigos de entrarem no seu jogo. Abra as Configurações do Windows → <b>Rede e Internet</b> → <b>TataoLAN</b> e escolha <b>Rede privada</b>.</div>
             <label class="check"><input type="checkbox" id="lanAuto"> Ligar a rede LAN automaticamente ao entrar na sala</label>
@@ -840,7 +853,7 @@ html.mobile [data-pc]{display:none!important}
           <div id="computers"></div>
           <div class="plegend" id="pingLegend"><span><i style="background:var(--q1)"></i>até 40 ms · ótimo</span><span><i style="background:var(--q2)"></i>até 80 ms · bom</span><span><i style="background:var(--q3)"></i>até 150 ms · médio</span><span><i style="background:var(--q4)"></i>acima · ruim</span></div>
           <div class="controls"><button class="btn small" id="testAll">Testar conexão com todos</button></div>
-          <div class="note" style="margin-top:14px">O ping é o tempo de ida e volta até o PC do amigo, medido o tempo todo pela conexão da sala. O "Testar" manda um sinal pela rede LAN do Tátão. Se der "Sem resposta", confira se ele também ligou a rede e se o Windows liberou o Tátão no firewall.</div>
+          <div class="note" style="margin-top:14px">O ping é o tempo de ida e volta até o PC do amigo, medido o tempo todo pela conexão da sala. O "Testar" manda um sinal pela rede LAN do Tátão. Se der "Sem resposta", confira se ele também ligou a rede e se o firewall do PC dele liberou o Tátão.</div>
         </div>
       </div>
     </section>
@@ -874,7 +887,7 @@ html.mobile [data-pc]{display:none!important}
             <div class="control"><label for="outDev">Alto-falantes / fones</label><select id="outDev"><option value="default">Padrão do sistema</option></select></div>
             <div class="control"><label for="outVol">Volume de saída: <span id="outVolVal">80</span>%</label><input type="range" class="range" id="outVol" min="0" max="100" value="80"></div>
             <button class="btn" id="testSpeaker">Tocar som de teste</button>
-            <div class="note" style="margin-top:14px">A saída escolhida vale para as vozes e os sons do Tátão. O YouTube sai sempre pela saída padrão do Windows. A música que os amigos compartilham do PC sai por aqui.</div>
+            <div class="note" style="margin-top:14px">A saída escolhida vale para as vozes e os sons do Tátão. O YouTube sai sempre pela saída padrão do sistema. A música que os amigos compartilham do PC sai por aqui.</div>
           </div>
           <div class="panel" data-pre>
             <h2>Processamento de áudio</h2>
@@ -934,7 +947,7 @@ html.mobile [data-pc]{display:none!important}
           <div class="panel" data-pc>
             <h2><svg class="ic"><use href="#i-download"/></svg>Atualizações</h2>
             <p class="muted">Versão instalada: <span id="verLabel2">v—</span>. O Tátão também verifica sozinho ao abrir.</p>
-            <button class="btn updCheck">Verificar atualização</button>
+            <div class="controls"><button class="btn updCheck">Verificar atualização</button><button class="btn" id="whatsNewBtn">O que mudou nesta versão</button></div>
           </div>
         </div>
       </div>
@@ -945,10 +958,11 @@ html.mobile [data-pc]{display:none!important}
 <script>
 "use strict";
 (function(){
-  var APP_VERSION="1.17.0";
+  var APP_VERSION="1.18.0";
   function $(id){return document.getElementById(id);}
   var isApp=!!(window.electronAPI&&window.electronAPI.isElectron);
   var api=window.electronAPI||{};
+  var isLinux=api.platform==="linux";
   if(api.isMobile)document.documentElement.classList.add("mobile"); // Tátão dentro do app de celular
 
   // ---------- sons ----------
@@ -1111,7 +1125,7 @@ html.mobile [data-pc]{display:none!important}
       noMic=false; $("micErr").textContent=""; applyMicEnabled(); updateMicUI(); refreshDevices();
       return s;
     }).catch(function(e){
-      noMic=true; $("micErr").textContent="Não consegui abrir o microfone ("+((e&&e.name)||"erro")+"). Confira se ele está conectado e liberado no Windows.";
+      noMic=true; $("micErr").textContent="Não consegui abrir o microfone ("+((e&&e.name)||"erro")+"). Confira se ele está conectado e liberado no "+(api.platform==="linux"?"Linux":"Windows")+".";
       updateMicUI(); throw e;
     });
   }
@@ -3284,7 +3298,7 @@ html.mobile [data-pc]{display:none!important}
     }
     renderMc();
   }
-  function mcAddr(w){var m=members[w.pid];return w.local?"127.0.0.1:"+w.local:(m&&m.vip&&lanActive?m.vip+":"+w.port:"(abra o app do Tátão no Windows)");}
+  function mcAddr(w){var m=members[w.pid];return w.local?"127.0.0.1:"+w.local:(m&&m.vip&&lanActive?m.vip+":"+w.port:"(abra o app do Tátão no computador)");}
   function renderMc(){
     var box=$("mcList");if(!box)return;var now=Date.now(),any=false;box.innerHTML="";
     var add=function(who,avKey,motd,sub,copy){any=true;var row=hrow(avKey,"MC",who+" · “"+motd+"”",sub,"on");row.classList.add("srv");
@@ -3393,8 +3407,9 @@ html.mobile [data-pc]{display:none!important}
     st.className="lanstate"+(lanActive?" on":lanBusy?" wait":"");
     $("lanStateTxt").textContent=lanActive?"Ligada":lanBusy?"Ligando…":"Desligada";
     $("lanStateSub").textContent=lanActive?("Rede da sala "+roomCode+". "+lanPeersOn()+" com a rede ligada."):
+      lanBusy&&isLinux?"Se aparecer uma janela pedindo senha, é o Linux pedindo permissão pra criar a placa de rede.":
       !inRoom?"Entre numa sala e ligue a rede pra jogar em LAN com quem está nela.":
-      !isApp?"A rede LAN funciona no app do Tátão para Windows.":"Ligue pra entrar na rede LAN da sala.";
+      !isApp?"A rede LAN funciona no app do Tátão (Windows ou Linux).":"Ligue pra entrar na rede LAN da sala.";
     $("lanIpLine").hidden=!(myVip&&inRoom);$("lanMyIp").textContent=myVip||"—";
     t.textContent=lanActive?"Desligar rede LAN":"Ligar rede LAN";
     t.classList.toggle("danger",lanActive);t.classList.toggle("primary",!lanActive);
@@ -3402,15 +3417,16 @@ html.mobile [data-pc]{display:none!important}
     scheduleLanStrip();
   }
   function lanEnable(){
-    lanError("");$("lanAdmin").hidden=true;
+    lanError("");$("lanAdmin").hidden=true;$("lanRoot").hidden=true;
     if(!inRoom){lanError("Entre numa sala primeiro.");return;}
-    if(!(isApp&&api.lanStart)){lanError("A rede LAN funciona no app do Tátão para Windows.");return;}
+    if(!(isApp&&api.lanStart)){lanError("A rede LAN funciona no app do Tátão (Windows ou Linux).");return;}
     if(!myVip){lanWant=true;lanError("Esperando o anfitrião da sala distribuir os IPs…");return;}
     lanBusy=true;lanUI();
     api.lanStart({ip:myVip,mask:LAN_MASK}).then(function(r){
       lanBusy=false;
       if(r&&r.ok){lanActive=true;lanError("");pushMyState();syncLanMesh();sysMsg("Rede LAN ligada. Seu IP na rede: "+myVip+".");playSnd("abrirLan");}
       else if(r&&r.needAdmin){$("lanAdmin").hidden=false;showTab("lan");}
+      else if(r&&r.needRoot)lanRootShow(r);
       else lanError((r&&r.error)||"Não consegui ligar a rede.");
       lanUI();renderComputers();
     }).catch(function(e){lanBusy=false;lanError("Erro: "+((e&&e.message)||e));lanUI();});
@@ -3429,6 +3445,16 @@ html.mobile [data-pc]{display:none!important}
   $("lanToggle").addEventListener("click",function(){if(lanActive)lanDisable();else lanEnable();});
   $("lanElevate").addEventListener("click",function(){if(api.lanElevate)api.lanElevate({name:myName,room:roomCode,lan:true}).then(function(r){if(r&&r.cancelled)lanError("Você não deu a permissão no Windows, então a rede LAN não ligou.");}).catch(function(){});});
   $("lanCopyIp").addEventListener("click",function(){if(myVip)copyText(myVip,this);});
+  // Linux: a senha de administrador é pedida pelo próprio sistema; sem a janela de senha, dá pra rodar o comando no terminal
+  function lanRootShow(r){
+    $("lanRootWhy").textContent=r.why==="cancel"?"A rede LAN não ligou porque a senha não foi digitada (ou a janela foi fechada).":
+      r.why==="nopkexec"||r.why==="noagent"?"Pra criar a placa de rede virtual, o Linux precisa da sua senha de administrador, mas não consegui abrir a janela de senha.":
+      "Pra criar a placa de rede virtual, o Linux precisa da sua senha de administrador.";
+    $("lanRootCmd").textContent=r.cmd||"";$("lanRootCmdBox").hidden=!r.cmd;
+    $("lanRoot").hidden=false;showTab("lan");
+  }
+  $("lanRootRetry").addEventListener("click",function(){if(!lanActive&&!lanBusy)lanEnable();});
+  $("lanRootCopy").addEventListener("click",function(){var c=$("lanRootCmd").textContent;if(c)copyText(c,this);});
   $("lanAuto").addEventListener("change",function(){setCfg("lanAuto",this.checked);});
   // abrir sempre como administrador (só no app para Windows)
   function adminUI(){
@@ -3699,7 +3725,7 @@ html.mobile [data-pc]{display:none!important}
       if(s.state==="checking")showUpd("Verificando atualização…",null);
       else if(s.state==="none"){showUpd("Você já está na última versão (v"+String(s.version||APP_VERSION).replace(/^v/,"")+").",null);setTimeout(function(){$("selfUpd").hidden=true;},4000);}
       else if(s.state==="disabled")showUpd("Atualização automática não configurada (falta o repositório em update.json).",null);
-      else if(s.state==="unsupported")showUpd("A atualização automática funciona na versão Windows do app.",null);
+      else if(s.state==="unsupported")showUpd("A atualização automática funciona no app para Windows e no AppImage do Linux.",null);
       else if(s.state==="busy")showUpd("Já estou baixando a atualização, só um instante…",null);
       else showUpd("Não consegui verificar agora. Tente de novo mais tarde.",null);
     });
@@ -3729,6 +3755,45 @@ html.mobile [data-pc]{display:none!important}
   $("srcCancel").addEventListener("click",function(){$("srcPicker").hidden=true;if(api.pickSource)api.pickSource(null);});
   if(isApp&&api.onPickSource)api.onPickSource(showSourcePicker);
 
+  // ================= NOVIDADES DA VERSÃO (CHANGELOG.md que vai junto com o app) =================
+  function changelogFor(md,ver){
+    var lines=String(md||"").split(/\r?\n/),out=[],on=false;
+    for(var i=0;i<lines.length;i++){
+      var l=lines[i];
+      if(/^##\s/.test(l)){if(on)break;on=l.replace(/^##\s+v?/,"").split(/\s/)[0]===ver;continue;}
+      if(on)out.push(l);
+    }
+    return out.join("\n").trim();
+  }
+  function mdLite(t){ // só o que o CHANGELOG usa: ### subtítulo, listas, **negrito** e `código`
+    var html="",inList=false;
+    var inline=function(x){return esc(x).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>").replace(/`([^`]+)`/g,"<code>$1</code>");};
+    t.split("\n").forEach(function(l){
+      var m=/^\s*[-*]\s+(.*)$/.exec(l);
+      if(m){if(!inList){html+='<ul class="wn">';inList=true;}html+="<li>"+inline(m[1])+"</li>";return;}
+      if(inList){html+="</ul>";inList=false;}
+      if(/^###\s+/.test(l))html+='<h3 class="subh">'+inline(l.replace(/^###\s+/,""))+"</h3>";
+      else if(l.trim())html+="<p>"+inline(l)+"</p>";
+    });
+    if(inList)html+="</ul>";
+    return html;
+  }
+  function showWhatsNew(ver,auto){
+    if(!(isApp&&api.changelog))return;
+    api.changelog().then(function(md){
+      var t=changelogFor(md,ver);if(!t&&auto)return;
+      openModal({title:(auto?"O Tátão foi atualizado pra v":"Novidades da v")+ver,cls:"wnbox",html:t?mdLite(t):"<p>Não achei a lista desta versão.</p>",
+        actions:[{label:"Ver todas as versões",fn:function(){if(api.openExternal)api.openExternal("https://github.com/pauloestefani/T-t-o/releases");return false;}},{label:"Fechar",primary:true}]});
+    }).catch(function(){});
+  }
+  // depois de atualizar, mostra uma vez o que mudou (quem acabou de instalar não vê)
+  function whatsNewCheck(){
+    var prev=String(cfg.lastVer||"");if(prev===APP_VERSION)return;
+    var updated=prev||!!cfg.name;setCfg("lastVer",APP_VERSION);
+    if(updated&&!api.isMobile)setTimeout(function(){if(!modalCur)showWhatsNew(APP_VERSION,true);},1500);
+  }
+  $("whatsNewBtn").addEventListener("click",function(){showWhatsNew(APP_VERSION,false);});
+
   // ================= INÍCIO =================
   if(!PEER_OK)$("lobbyErr").textContent="A parte de conexão do app não carregou. Use Verificar atualização ou baixe o app de novo.";
   $("autoCancel").addEventListener("click",function(){if(autoTimer)clearTimeout(autoTimer);$("autoOverlay").hidden=true;});
@@ -3736,7 +3801,7 @@ html.mobile [data-pc]{display:none!important}
     cfg=Object.assign({},DEF,s||{});
     prefill();renderServers();renderFriends();
     loadIdentity().then(function(){renderMyCode();presStart();},function(e){$("myCode").textContent="indisponível";console.warn("identidade:",e&&e.message);});updateShareUI();updateMicUI();refreshDevices();applyOutput();refreshLan();renderComputers();lanUI();
-    updateWindowMode();signalReady();placeNavInd(true);adminUI();
+    updateWindowMode();signalReady();placeNavInd(true);adminUI();whatsNewCheck();
     settingsLoaded=true;if(resumePending){tryResume();return;}
     var qs={};
     try{location.search.slice(1).split("&").forEach(function(kv){if(!kv)return;var i=kv.indexOf("=");qs[decodeURIComponent(i<0?kv:kv.slice(0,i))]=decodeURIComponent(i<0?"":kv.slice(i+1));});

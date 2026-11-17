@@ -11,6 +11,9 @@ const { spawn } = require("child_process");
 
 // permite tocar música (YouTube) sem exigir clique a cada vez — essencial pra sincronizar entre todos
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+// Linux: compartilhar a tela também no Wayland (pela janela do próprio sistema, via PipeWire)
+if (process.platform === "linux") app.commandLine.appendSwitch("enable-features", "WebRTCPipeWireCapturer");
+const APP_ICON = path.join(__dirname, process.platform === "win32" ? "icon.ico" : "icon.png");
 
 let win = null;
 let peerServer = null;
@@ -30,9 +33,9 @@ function lanIps() {
 function classifyNet(name, ip) {
   const n = String(name).toLowerCase();
   const p = ip.split(".").map(Number);
-  if (n.includes("tataolan")) return "tatao";
+  if (n.includes("tataolan") || /^tatao\d/.test(n)) return "tatao";
   if (n.includes("radmin") || p[0] === 26) return "radmin";
-  if (n.includes("zerotier")) return "zerotier";
+  if (n.includes("zerotier") || /^zt[0-9a-z]{6,}$/.test(n)) return "zerotier";
   if (n.includes("tailscale") || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)) return "tailscale";
   if (n.includes("hamachi") || p[0] === 25) return "hamachi";
   if (n.includes("wireguard") || n.includes("wintun")) return "wireguard";
@@ -183,7 +186,7 @@ async function javaListenPorts() {
     // "TCP  0.0.0.0:1111  0.0.0.0:0  LISTENING  1234" (o nome do estado muda com o idioma; o endereço remoto zerado não)
     for (const line of n.out.split(/\r?\n/)) { const m = /^\s*TCP\s+(\S+):(\d+)\s+(?:0\.0\.0\.0:0|\[::\]:0)\s+\S+\s+(\d+)\s*$/i.exec(line); if (m && pids.has(m[3])) ports.add(+m[2]); }
   } else if (process.platform === "linux") {
-    // (Linux, só pra desenvolver/testar) portas em escuta pelo /proc
+    // Linux: portas em escuta pelo /proc (só dá pra ver os processos da própria pessoa, que é o caso do Minecraft)
     const inodes = new Map();
     for (const f of ["/proc/net/tcp", "/proc/net/tcp6"]) {
       let txt = ""; try { txt = fs.readFileSync(f, "utf8"); } catch (_) { continue; }
@@ -290,13 +293,134 @@ function loadLanApi(dll) {
   };
   return lanApi;
 }
+// ---------- Rede LAN no Linux: placa "tatao0" (o TUN do próprio Linux) ----------
+// Os pacotes são os mesmos da placa do Windows (IPv4 puro), então PCs com Windows e com Linux ficam na mesma LAN.
+// Criar a placa e dar o IP pede a senha de administrador uma vez (pkexec); a placa fica sendo da pessoa, então
+// enquanto o IP for o mesmo o Tátão se liga nela sem pedir de novo (até desligar o PC).
+// Com o Tátão fechado a placa fica sem sinal e as rotas dela deixam de valer, então a rede normal volta como era.
+const LNX_DEV = "tatao0", LNX_MARK = "tatao-lan 1";
+const LNX_HELPER = [
+  "#!/bin/sh",
+  "# Tátão: liga a placa de rede virtual \"tatao0\" pra rede LAN da sala. É só isso que este script faz.",
+  "# Uso: sh tatao-lan.sh up 10.77.X.Y UID",
+  "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "DEV=" + LNX_DEV,
+  "[ \"$1\" = up ] || exit 2",
+  "IP=\"$2\"; OWNER=\"$3\"",
+  "echo \"$IP\" | grep -Eq '^10\\.77\\.[0-9]{1,3}\\.[0-9]{1,3}$' || exit 2",
+  "echo \"$OWNER\" | grep -Eq '^[0-9]{1,10}$' || exit 2",
+  "command -v ip >/dev/null 2>&1 || { echo 'falta o comando ip (pacote iproute2)' >&2; exit 3; }",
+  "[ -c /dev/net/tun ] || modprobe tun 2>/dev/null",
+  "# a placa é sempre de quem usa o Tátão (assim ele se liga nela sem precisar de administrador)",
+  "if [ -d /sys/class/net/$DEV ] && [ \"$(cat /sys/class/net/$DEV/owner 2>/dev/null)\" != \"$OWNER\" ]; then ip link delete $DEV; fi",
+  "[ -d /sys/class/net/$DEV ] || ip tuntap add dev $DEV mode tun user \"$OWNER\" || exit 4",
+  "F=/proc/sys/net/ipv6/conf/$DEV/disable_ipv6; [ -e $F ] && echo 1 > $F",
+  "# Tátão fechado = placa sem sinal: as rotas dela param de valer e o PC volta a usar a rede normal",
+  "F=/proc/sys/net/ipv4/conf/$DEV/ignore_routes_with_linkdown; [ -e $F ] && echo 1 > $F",
+  "ip addr flush dev $DEV",
+  "ip addr add \"$IP/16\" brd 10.77.255.255 dev $DEV || exit 5",
+  "ip link set dev $DEV mtu 1380 up || exit 6",
+  "ip link set dev $DEV alias '" + LNX_MARK + "'",
+  "# aviso de \"Abrir para LAN\" do Minecraft e busca de partida em LAN saem por esta placa (igual no Windows)",
+  "ip route replace 224.0.2.60/32 dev $DEV metric 1",
+  "ip route replace 255.255.255.255/32 dev $DEV metric 1",
+  "# firewall: deixa os amigos da sala entrarem nos jogos, só por esta placa",
+  "if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then firewall-cmd --zone=trusted --change-interface=$DEV >/dev/null 2>&1; fi",
+  "if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi 'status: active'; then ufw allow in on $DEV >/dev/null 2>&1; fi",
+  "exit 0", ""
+].join("\n");
+function lnxSys(f) { try { return fs.readFileSync("/sys/class/net/" + LNX_DEV + "/" + f, "utf8").trim(); } catch (_) { return null; } }
+async function lnxReady(ip) {
+  if (lnxSys("owner") !== String(process.getuid()) || lnxSys("ifalias") !== LNX_MARK) return false;
+  const r = await runCmd(lnxFind("ip") || "ip", ["-4", "-o", "addr", "show", "dev", LNX_DEV]); // o "ip" pode estar fora do PATH (Debian: /usr/sbin)
+  return (" " + r.out + " ").indexOf(" inet " + ip + "/16 ") >= 0;
+}
+function lnxFind(cmd) {
+  for (const d of ["/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin"]) { const p = path.join(d, cmd); try { fs.accessSync(p, fs.constants.X_OK); return p; } catch (_) {} }
+  return null;
+}
+const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+function lnxHelperFile() {
+  const p = path.join(app.getPath("userData"), "tatao-lan.sh");
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, LNX_HELPER, { mode: 0o755 }); try { fs.chmodSync(p, 0o755); } catch (_) {}
+  return p;
+}
+const LNX_ERR = { 3: "Falta o programa \"ip\" no Linux (pacote iproute2).", 4: "O Linux não deixou criar a placa de rede virtual (o módulo \"tun\" está disponível?).", 5: "O Linux não aceitou o IP da rede.", 6: "O Linux não deixou ligar a placa de rede virtual." };
+let lnxAsking = null;
+async function lnxConfigure(ip) {
+  let sh; try { sh = lnxHelperFile(); } catch (e) { return { ok: false, error: "Não consegui preparar a placa de rede: " + ((e && e.message) || e) }; }
+  const uid = String(process.getuid()), cmd = "sudo sh " + shq(sh) + " up " + ip + " " + uid;
+  let r;
+  if (uid === "0") r = await runCmd("/bin/sh", [sh, "up", ip, uid]);
+  else {
+    const pk = (!app.isPackaged && process.env.TATAO_PKEXEC) || lnxFind("pkexec");
+    if (!pk) return { ok: false, needRoot: true, why: "nopkexec", cmd };
+    // a janela de senha é do próprio Linux (polkit); o Tátão espera a resposta
+    r = await runCmd(pk, ["/bin/sh", sh, "up", ip, uid]);
+    if (r.code === 126) return { ok: false, needRoot: true, why: "cancel", cmd };
+    if (r.code === 127 || r.code === -1) return { ok: false, needRoot: true, why: "noagent", cmd };
+  }
+  if (r.code !== 0) return { ok: false, error: (LNX_ERR[r.code] || "Não consegui criar a placa de rede virtual.") + (r.out.trim() ? " (" + r.out.trim().split("\n").pop().slice(0, 160) + ")" : ""), cmd };
+  return { ok: true };
+}
+let lnxLib = null;
+function lnxC() {
+  if (lnxLib) return lnxLib;
+  const koffi = require("koffi"), C = koffi.load("libc.so.6");
+  lnxLib = { koffi, open: C.func("int open(const char *path, int flags, ...)"), ioctl: C.func("int ioctl(int fd, unsigned long req, ...)"),
+    write: C.func("long write(int fd, const uint8_t *buf, unsigned long n)"), close: C.func("int close(int fd)") };
+  return lnxLib;
+}
+function lnxAttach() {
+  const C = lnxC();
+  const fd = C.open("/dev/net/tun", 2 | 0o4000 | 0o2000000, "int", 0); // O_RDWR | O_NONBLOCK | O_CLOEXEC
+  if (fd < 0) return { errno: C.koffi.errno(), where: "open" };
+  const ifr = Buffer.alloc(40); ifr.write(LNX_DEV, 0, "latin1"); ifr.writeUInt16LE(0x0001 | 0x1000, 16); // IFF_TUN | IFF_NO_PI
+  if (C.ioctl(fd, 0x400454ca, "uint8_t *", ifr) < 0) { const e = C.koffi.errno(); C.close(fd); return { errno: e, where: "ioctl" }; } // TUNSETIFF
+  return { fd };
+}
+async function lnxStart(ip) {
+  if (!(await lnxReady(ip))) {
+    if (lnxAsking) return { ok: false, error: "Já tem um pedido de senha aberto. Responda a janela do Linux." };
+    lnxAsking = lnxConfigure(ip);
+    let c; try { c = await lnxAsking; } finally { lnxAsking = null; }
+    if (!c.ok) return c;
+    if (!(await lnxReady(ip))) return { ok: false, error: "A placa de rede foi criada, mas não ficou com o IP " + ip + "." };
+  }
+  let a;
+  try { a = lnxAttach(); } catch (e) { return { ok: false, error: "Não consegui carregar o componente de rede: " + ((e && e.message) || e) }; }
+  if (a.errno != null) {
+    if (a.where === "open") return { ok: false, error: "O Linux não deixou abrir a placa de rede (/dev/net/tun, erro " + a.errno + ")." };
+    if (a.errno === 16) return { ok: false, error: "A placa tatao0 já está sendo usada por outro programa (outro Tátão aberto?)." };
+    return { ok: false, error: "Não consegui ligar na placa tatao0 (erro " + a.errno + ")." };
+  }
+  const stop = new Int32Array(new SharedArrayBuffer(4));
+  const wpath = path.join(__dirname, "lan-worker.js").replace("app.asar" + path.sep, "app.asar.unpacked" + path.sep);
+  let worker;
+  try { worker = new Worker(wpath, { workerData: { fd: a.fd, stop } }); }
+  catch (e) { lnxC().close(a.fd); return { ok: false, error: "Falha ao iniciar a leitura da rede: " + ((e && e.message) || e) }; }
+  const me = { running: true, ip, fd: a.fd, worker, stop, rx: 0, tx: 0 };
+  lanHookWorker(me);
+  lan = me;
+  mcListenStart();
+  return { ok: true, ip };
+}
+function lanHookWorker(me) {
+  me.worker.on("message", (u8) => {
+    if (u8 && u8.err) { if (lan === me) send("lan:status", { state: "error", error: u8.err }); return; }
+    me.rx++; send("lan:in", Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength));
+  });
+  me.worker.on("error", (e) => { if (lan === me) send("lan:status", { state: "error", error: String((e && e.message) || e) }); });
+}
 async function lanStart(opts) {
   opts = opts || {};
   const ip = String(opts.ip || ""), mask = String(opts.mask || "255.255.0.0");
   if (!/^10\.77\.\d{1,3}\.\d{1,3}$/.test(ip)) return { ok: false, error: "IP da rede inválido." };
   if (lan.running) { if (lan.ip === ip) return { ok: true, ip }; await lanStop(); }
   const mock = lanMockPath();
-  if (process.platform !== "win32" && !mock) return { ok: false, error: "A rede LAN do Tátão funciona no Windows." };
+  if (process.platform === "linux" && !mock) return lnxStart(ip);
+  if (process.platform !== "win32" && !mock) return { ok: false, error: "A rede LAN do Tátão funciona no Windows e no Linux." };
   if (!mock && !isAdmin()) return { ok: false, needAdmin: true };
   const dll = mock || path.join(process.resourcesPath, "wintun.dll");
   if (!fs.existsSync(dll)) return { ok: false, error: "O componente da placa de rede (wintun.dll) não veio junto com o app. Baixe o Tátão de novo pelo GitHub." };
@@ -318,8 +442,7 @@ async function lanStart(opts) {
   try { worker = new Worker(wpath, { workerData: { dll, session: A.koffi.address(session), event: A.koffi.address(ev), stop } }); }
   catch (e) { try { A.end(session); A.close(adapter); } catch (_) {} return { ok: false, error: "Falha ao iniciar a leitura da rede: " + ((e && e.message) || e) }; }
   const me = { running: true, ip, adapter, session, worker, stop, rx: 0, tx: 0 };
-  worker.on("message", (u8) => { me.rx++; send("lan:in", Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength)); });
-  worker.on("error", (e) => { if (lan === me) send("lan:status", { state: "error", error: String((e && e.message) || e) }); });
+  lanHookWorker(me);
   lan = me;
   mcListenStart(); mcRefresh();
   return { ok: true, ip };
@@ -328,6 +451,7 @@ function lanWrite(buf) {
   if (!lan.running || !buf) return;
   const n = buf.length >>> 0;
   if (n < 20 || n > 65535) return;
+  if (lan.fd != null) { if (lnxC().write(lan.fd, buf, n) === n) lan.tx++; return; } // Linux: entrega na placa tatao0
   const p = lanApi.alloc(lan.session, n);
   if (!p) return; // fila cheia: descarta, como uma rede faria
   lanApi.koffi.encode(p, "uint8_t", buf, n); // copia pro buffer do Wintun (o Electron não permite apontar direto)
@@ -342,6 +466,7 @@ async function lanStop() {
   Atomics.store(cur.stop, 0, 1);
   await new Promise((r) => { const t = setTimeout(r, 1500); cur.worker.once("exit", () => { clearTimeout(t); r(); }); });
   try { await cur.worker.terminate(); } catch (_) {}
+  if (cur.fd != null) { try { lnxC().close(cur.fd); } catch (_) {} return { ok: true }; } // Linux: a placa fica sem sinal e as rotas dela param de valer
   try { lanApi.end(cur.session); } catch (_) {}
   try { lanApi.close(cur.adapter); } catch (_) {}
   return { ok: true };
@@ -752,9 +877,11 @@ function semverGt(a, b) {
   for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x > y) return true; if (x < y) return false; }
   return false;
 }
+const GH = (!app.isPackaged && process.env.TATAO_GH) || "https://github.com"; // (teste de desenvolvimento: um "GitHub" local)
+const getter = (url) => /^http:/.test(url) && !app.isPackaged ? require("http") : https;
 function ghGet(url, accept) {
   return new Promise((res, rej) => {
-    const req = https.get(url, { headers: { "User-Agent": "Tatao-Updater", "Accept": accept || "application/vnd.github+json" } }, (r) => {
+    const req = getter(url).get(url, { headers: { "User-Agent": "Tatao-Updater", "Accept": accept || "application/vnd.github+json" } }, (r) => {
       if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) { r.resume(); ghGet(r.headers.location, accept).then(res, rej); return; }
       let d = ""; r.on("data", (c) => d += c); r.on("end", () => res({ status: r.statusCode, body: d }));
     });
@@ -764,7 +891,7 @@ function ghGet(url, accept) {
 function ghDownload(url, dest, onProgress) {
   return new Promise((res, rej) => {
     const file = fs.createWriteStream(dest);
-    const req = https.get(url, { headers: { "User-Agent": "Tatao-Updater", "Accept": "application/octet-stream" } }, (r) => {
+    const req = getter(url).get(url, { headers: { "User-Agent": "Tatao-Updater", "Accept": "application/octet-stream" } }, (r) => {
       if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) { r.resume(); file.close(); fs.unlink(dest, () => {}); ghDownload(r.headers.location, dest, onProgress).then(res, rej); return; }
       if (r.statusCode !== 200) { r.resume(); file.close(); rej(new Error("HTTP " + r.statusCode)); return; }
       const total = parseInt(r.headers["content-length"] || "0", 10); let got = 0;
@@ -790,11 +917,17 @@ function send(channel, ...args) { if (win && !win.isDestroyed()) win.webContents
 function ghRedirect(url) {
   // pega só o endereço de redirecionamento (sem seguir), pra descobrir a tag mais nova
   return new Promise((res, rej) => {
-    const req = https.get(url, { headers: { "User-Agent": "Tatao-Updater" } }, (r) => { r.resume(); res(r.headers.location || ""); });
+    const req = getter(url).get(url, { headers: { "User-Agent": "Tatao-Updater" } }, (r) => { r.resume(); res(r.headers.location || ""); });
     req.on("error", rej); req.setTimeout(15000, () => req.destroy(new Error("timeout")));
   });
 }
 
+// Linux: o app é um arquivo .AppImage só; atualizar é baixar o novo do lado e trocar o arquivo
+function appImagePath() { const p = process.platform === "linux" ? process.env.APPIMAGE : ""; return p && path.isAbsolute(p) && fs.existsSync(p) ? p : null; }
+function isAppImageFile(f) {
+  try { const fd = fs.openSync(f, "r"), b = Buffer.alloc(11); fs.readSync(fd, b, 0, 11, 0); fs.closeSync(fd);
+    return b[0] === 0x7f && b.toString("latin1", 1, 4) === "ELF" && b[8] === 0x41 && b[9] === 0x49 && b[10] === 0x02; } catch (_) { return false; }
+}
 let updBusy = false;   // evita duas checagens/downloads ao mesmo tempo
 let updReady = null;   // atualização já baixada e pronta
 async function checkUpdate(manual) {
@@ -803,16 +936,17 @@ async function checkUpdate(manual) {
   const repo = updateRepo();
   if (manual) send("update-status", { state: "checking" });
   if (!repo) { if (manual) send("update-status", { state: "disabled" }); return; }
-  if (process.platform !== "win32") { if (manual) send("update-status", { state: "unsupported" }); return; }
+  const lnx = process.platform === "linux", ASSET = lnx ? "Tatao-Linux.AppImage" : "Tatao-Windows.zip";
+  if (process.platform !== "win32" && !(lnx && appImagePath())) { if (manual) send("update-status", { state: "unsupported" }); return; }
   updBusy = true;
   try {
     let tag = null, assetUrl = null;
     // 1) link público do GitHub (sem limite de consultas): /releases/latest redireciona pra /releases/tag/<tag>
     try {
-      const loc = await ghRedirect("https://github.com/" + repo + "/releases/latest");
+      const loc = await ghRedirect(GH + "/" + repo + "/releases/latest");
       if (loc && loc.indexOf("/releases/tag/") >= 0) {
         tag = decodeURIComponent(loc.split("/releases/tag/")[1].split(/[?#]/)[0]);
-        assetUrl = "https://github.com/" + repo + "/releases/download/" + encodeURIComponent(tag) + "/Tatao-Windows.zip";
+        assetUrl = GH + "/" + repo + "/releases/download/" + encodeURIComponent(tag) + "/" + ASSET;
       }
     } catch (_) {}
     // 2) reserva: API do GitHub (tem limite de 60 consultas/hora por internet)
@@ -820,11 +954,23 @@ async function checkUpdate(manual) {
       const r = await ghGet("https://api.github.com/repos/" + repo + "/releases/latest");
       if (r.status !== 200) { if (manual) send("update-status", { state: r.status === 404 ? "none" : "error", version: app.getVersion() }); return; }
       const rel = JSON.parse(r.body);
-      const asset = rel && (rel.assets || []).find((a) => /\.zip$/i.test(a.name));
+      const asset = rel && (rel.assets || []).find((a) => lnx ? /\.AppImage$/i.test(a.name) : /\.zip$/i.test(a.name));
       if (rel && rel.tag_name && asset) { tag = rel.tag_name; assetUrl = asset.browser_download_url; }
     }
     if (!tag || !assetUrl || !semverGt(tag, app.getVersion())) { if (manual) send("update-status", { state: "none", version: app.getVersion() }); return; }
     send("update-available", { version: tag });
+    if (lnx) {
+      // baixa do lado do AppImage atual (mesma pasta = troca instantânea, sem copiar de novo)
+      const cur = appImagePath(), dir = path.dirname(cur), next = path.join(dir, "." + path.basename(cur) + ".novo");
+      try { fs.accessSync(dir, fs.constants.W_OK); } catch (_) { send("update-error", { msg: "sem permissão pra gravar em " + dir, url: "https://github.com/" + repo + "/releases/latest" }); return; }
+      try { fs.rmSync(next, { force: true }); } catch (_) {}
+      await ghDownload(assetUrl, next, (p) => send("update-progress", p));
+      if (!isAppImageFile(next)) { try { fs.rmSync(next, { force: true }); } catch (_) {} send("update-error", { msg: "pacote inválido", url: "https://github.com/" + repo + "/releases/latest" }); return; }
+      fs.chmodSync(next, 0o755);
+      updReady = { version: tag, dir: next, appimage: true };
+      send("update-ready", updReady);
+      return;
+    }
     const tmp = path.join(app.getPath("temp"), "tatao-update");
     process.noAsar = true; // pasta antiga pode conter app.asar
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {} finally { process.noAsar = false; }
@@ -849,6 +995,19 @@ async function checkUpdate(manual) {
 }
 
 function applyUpdate(newDir) {
+  if (process.platform === "linux") {
+    // troca o arquivo .AppImage (o que está aberto continua funcionando até fechar) e abre o novo
+    try {
+      const cur = appImagePath();
+      if (!cur || !updReady || !updReady.appimage || !fs.existsSync(updReady.dir)) return { ok: false, error: "atualização não encontrada" };
+      fs.renameSync(updReady.dir, cur);
+      const env = Object.assign({}, process.env); for (const k of ["APPIMAGE", "APPDIR", "ARGV0", "OWD"]) delete env[k];
+      try { app.releaseSingleInstanceLock(); } catch (_) {}
+      spawn(cur, [], { detached: true, stdio: "ignore", env, cwd: path.dirname(cur) }).unref();
+      setTimeout(() => app.quit(), 300);
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  }
   try {
     const installDir = path.dirname(app.getPath("exe"));
     const exe = app.getPath("exe");
@@ -871,6 +1030,27 @@ function applyUpdate(newDir) {
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 
+// ---------- Linux: atalho do Tátão no menu de aplicativos (o AppImage não instala nada sozinho) ----------
+function lnxDesktopEntry() {
+  const img = appImagePath(); if (!img) return;
+  try {
+    const data = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+    const appsDir = path.join(data, "applications"), desk = path.join(appsDir, "tatao.desktop");
+    const iconDir = path.join(data, "icons", "hicolor", "256x256", "apps");
+    const q = '"' + img.replace(/(["`$\\])/g, "\\$1") + '"';
+    const want = ["[Desktop Entry]", "Type=Application", "Name=Tátão", "Comment=Voz, tela, chat, música e rede LAN pra jogar com os amigos",
+      "Exec=" + q.replace(/\\/g, "\\\\") + " %U", "Icon=tatao", "Terminal=false", "Categories=Network;Game;Chat;", "StartupWMClass=Tátão", "X-Tatao=1", ""].join("\n");
+    let cur = ""; try { cur = fs.readFileSync(desk, "utf8"); } catch (_) {}
+    if (cur === want) return;
+    if (cur && !/^X-Tatao=1$/m.test(cur)) return; // atalho feito pela pessoa: não mexe
+    // AppImageLauncher / Gear Lever já criaram um atalho pra este arquivo: não duplica
+    try { for (const f of fs.readdirSync(appsDir)) if (f !== "tatao.desktop" && /\.desktop$/.test(f) && fs.readFileSync(path.join(appsDir, f), "utf8").includes(img)) return; } catch (_) {}
+    fs.mkdirSync(iconDir, { recursive: true }); fs.mkdirSync(appsDir, { recursive: true });
+    fs.copyFileSync(path.join(__dirname, "icon.png"), path.join(iconDir, "tatao.png"));
+    fs.writeFileSync(desk, want);
+  } catch (_) {}
+}
+
 // ---------- janela ----------
 let shareOpts = { type: "all", audio: true }; // definido pela tela antes de cada transmissão
 // ---------- abertura (logo + barra) e tamanho da janela: pequena pra entrar, grande na sala ----------
@@ -881,7 +1061,7 @@ function createSplash() {
   const c = themeColors();
   splashStart = Date.now();
   splash = new BrowserWindow({ width: 300, height: 320, frame: false, resizable: false, maximizable: false, fullscreenable: false, show: false,
-    backgroundColor: c.bg, title: "Tátão", icon: path.join(__dirname, "icon.ico"), webPreferences: { contextIsolation: true, nodeIntegration: false } });
+    backgroundColor: c.bg, title: "Tátão", icon: APP_ICON, webPreferences: { contextIsolation: true, nodeIntegration: false } });
   splash.loadFile(path.join(__dirname, "splash.html"), { query: { bg: c.bg, track: c.track, bar: c.bar } });
   splash.once("ready-to-show", () => { if (splash && !appShown) { splash.show(); splashProgress(splashP || 0.12); } });
   splash.on("closed", () => { splash = null; });
@@ -946,6 +1126,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: LOGIN_W, height: loginH, useContentSize: true, resizable: false, maximizable: false, show: false,
     backgroundColor: ({ creme: "#f4ecdc", noite: "#121722" })[readCfg().theme] || "#20252d", autoHideMenuBar: true, title: "Tátão",
+    icon: process.platform === "win32" ? undefined : APP_ICON, // no Windows o ícone vem do próprio .exe
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
@@ -1091,6 +1272,7 @@ ipcMain.handle("music:keyInfo", () => ({ has: !!ytKey(), user: !!userYtKey(), ap
 ipcMain.handle("music:testKey", (_e, k) => ytTestKey(k));
 ipcMain.on("win:mode", (_e, o) => { o = o || {}; if (o.mode === "full") setFullMode(); else setLoginMode(o.h); });
 ipcMain.on("app:ready", () => revealMain());
+ipcMain.handle("app:changelog", () => { try { return fs.readFileSync(path.join(__dirname, "CHANGELOG.md"), "utf8"); } catch (_) { return ""; } });
 ipcMain.handle("app:isAdmin", () => process.platform === "win32" ? isAdmin() : null);
 ipcMain.on("theme:bg", (_e, c) => { try { if (win && !win.isDestroyed() && /^#[0-9a-f]{6}$/i.test(String(c))) win.setBackgroundColor(String(c)); } catch (_) {} });
 ipcMain.handle("pcaudio:available", () => pcAvailable());
@@ -1126,6 +1308,7 @@ if (!app.requestSingleInstanceLock()) {
       return;
     }
     createWindow();
+    if (process.platform === "linux") setTimeout(lnxDesktopEntry, 3000);
   });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

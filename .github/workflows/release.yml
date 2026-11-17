@@ -8,7 +8,32 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      ver: ${{ steps.c.outputs.ver }}
+      skip: ${{ steps.c.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar versão / se já existe release / se tem changelog
+        id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+          if gh release view "v$ver" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Release v$ver já existe - pulando."; exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          # regra do projeto: toda versão publicada tem a lista do que mudou
+          awk -v v="$ver" '/^## /{ if (on) exit; on = ($2 == v); next } on' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then echo "::error::CHANGELOG.md não tem a seção '## $ver'. Escreva o que mudou antes de publicar."; exit 1; fi
+          echo "Vai publicar v$ver:"; cat notes.md
+
+  windows:
+    needs: check
+    if: needs.check.outputs.skip == 'false'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,27 +41,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Verificar versão / se já existe release
-        id: check
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ver = node -p "require('./package.json').version"
-          "ver=$ver" >> $env:GITHUB_OUTPUT
-          $null = gh release view "v$ver" --repo ${{ github.repository }} 2>$null
-          if ($LASTEXITCODE -eq 0) { "skip=true" >> $env:GITHUB_OUTPUT; Write-Host "Release v$ver ja existe - pulando." }
-          else { "skip=false" >> $env:GITHUB_OUTPUT; Write-Host "Vai publicar v$ver." }
-          exit 0
-
       - name: Instalar dependências
-        if: steps.check.outputs.skip == 'false'
         run: npm install
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
       - name: Baixar o Wintun (driver da placa de rede virtual)
-        if: steps.check.outputs.skip == 'false'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile wintun.zip
@@ -53,7 +63,6 @@ jobs:
           if ($lic) { Copy-Item $lic.FullName vendor/wintun-LICENSE.txt }
 
       - name: Compilar o capturador de áudio (tatao-audio.exe)
-        if: steps.check.outputs.skip == 'false'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force vendor | Out-Null
@@ -80,7 +89,6 @@ jobs:
           exit 0
 
       - name: Chave do YouTube (opcional, do segredo YT_API_KEY)
-        if: steps.check.outputs.skip == 'false'
         shell: pwsh
         env:
           YT_API_KEY: ${{ secrets.YT_API_KEY }}
@@ -92,21 +100,96 @@ jobs:
           } else { Write-Host "sem segredo YT_API_KEY: cada anfitrião coloca a chave nas Configurações" }
 
       - name: Compilar o app
-        if: steps.check.outputs.skip == 'false'
         run: node build.js
 
       - name: Zipar
-        if: steps.check.outputs.skip == 'false'
         shell: pwsh
         run: Compress-Archive -Path "dist/Tatao-win32-x64" -DestinationPath "Tatao-Windows.zip" -Force
 
-      - name: Publicar Release
-        if: steps.check.outputs.skip == 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Tatao-Windows.zip
+          if-no-files-found: error
+
+  linux:
+    needs: check
+    if: needs.check.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Chave do YouTube (opcional, do segredo YT_API_KEY)
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: |
+          if [ -n "$YT_API_KEY" ]; then
+            node -e 'require("fs").mkdirSync("vendor",{recursive:true});require("fs").writeFileSync("vendor/keys.json",JSON.stringify({ytKey:process.env.YT_API_KEY}))'
+            echo "chave do YouTube incluída no app"
+          else echo "sem segredo YT_API_KEY: cada anfitrião coloca a chave nas Configurações"; fi
+
+      - name: Compilar o app
+        run: node build.js linux
+
+      - name: Montar o AppImage
+        run: |
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          sha256sum appimagetool; chmod +x appimagetool
+          ./build-appimage.sh "$PWD/appimagetool" "$PWD/Tatao-Linux.AppImage"
+
+      - name: Conferir o AppImage
+        run: |
+          ./Tatao-Linux.AppImage --appimage-extract >/dev/null
+          test -x squashfs-root/AppRun
+          test -x squashfs-root/usr/lib/tatao/tatao
+          test -f squashfs-root/usr/lib/tatao/resources/app.asar.unpacked/lan-worker.js
+          test -d squashfs-root/usr/lib/tatao/resources/app.asar.unpacked/node_modules/koffi/build/koffi/linux_x64
+          test -f squashfs-root/usr/lib/tatao/resources/update.json
+          ls -la Tatao-Linux.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: Tatao-Linux.AppImage
+          if-no-files-found: error
+
+  release:
+    needs: [check, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Texto da versão (do CHANGELOG.md)
+        run: |
+          ver="${{ needs.check.outputs.ver }}"
+          awk -v v="$ver" '/^## /{ if (on) exit; on = ($2 == v); next } on' CHANGELOG.md > notes.md
+          cat >> notes.md <<'TXT'
+
+          ---
+          **Baixar**
+          - **Windows:** `Tatao-Windows.zip`. Extraia e abra o `Tatao.exe` (fora de `C:\Program Files`).
+          - **Linux:** `Tatao-Linux.AppImage`. Dê permissão de execução (botão direito → Propriedades → Permitir executar, ou `chmod +x Tatao-Linux.AppImage`) e abra.
+
+          Quem já tem o Tátão recebe esta versão sozinho. A lista de todas as versões fica no [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
+          TXT
+          sed -i 's/^          //' notes.md
+          cat notes.md
+      - name: Publicar Release (Windows e Linux juntos)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.check.outputs.ver }}
-          name: Tátão v${{ steps.check.outputs.ver }}
-          files: Tatao-Windows.zip
-          body: |
-            Atualização do Tátão.
-            Baixe o Tatao-Windows.zip, extraia e abra o Tatao.exe (fora de C:\Program Files).
+          tag_name: v${{ needs.check.outputs.ver }}
+          name: Tátão v${{ needs.check.outputs.ver }}
+          body_path: notes.md
+          files: |
+            out/windows/Tatao-Windows.zip
+            out/linux/Tatao-Linux.AppImage

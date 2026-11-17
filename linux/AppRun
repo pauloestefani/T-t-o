@@ -1,0 +1,12 @@
+#!/bin/sh
+# Tátão (AppImage): abre o app que está dentro deste arquivo.
+HERE="$(dirname "$(readlink -f "$0")")"
+# Sandbox do Chromium: dentro do AppImage o "chrome-sandbox" não pode virar administrador, então o Electron
+# precisa dos "user namespaces" do Linux. Quando o sistema não libera (Ubuntu 24.04+, por exemplo), abre sem ele.
+SANDBOX=""
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = "1" ] \
+  || [ "$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null)" = "0" ] \
+  || ! unshare -Ur true >/dev/null 2>&1; then
+  SANDBOX="--no-sandbox"
+fi
+exec "$HERE/usr/lib/tatao/tatao" $SANDBOX "$@"

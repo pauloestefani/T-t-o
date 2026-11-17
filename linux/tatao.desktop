@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tátão
+Comment=Voz, tela, chat, música e rede LAN pra jogar com os amigos
+Exec=tatao %U
+Icon=tatao
+Terminal=false
+Categories=Network;Game;Chat;
+StartupWMClass=Tátão

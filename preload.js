@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: true,
+  platform: process.platform, // "win32" ou "linux"
   // transmissão de tela
   onPickSource: (cb) => ipcRenderer.on("pick-source", (_e, sources) => cb(sources)),
   pickSource: (id) => ipcRenderer.send("source-picked", id),
@@ -50,6 +51,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setWindowMode: (o) => ipcRenderer.send("win:mode", o),
   appReady: () => ipcRenderer.send("app:ready"),
   isAdmin: () => ipcRenderer.invoke("app:isAdmin"),
+  changelog: () => ipcRenderer.invoke("app:changelog"),
   fileOpen: (o) => ipcRenderer.invoke("file:open", o),
   fileWriteAt: (id, pos, u8) => ipcRenderer.send("file:writeAt", id, pos, u8),
   fileClose: (id, ok) => ipcRenderer.invoke("file:close", id, ok),
